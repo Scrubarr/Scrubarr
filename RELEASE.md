@@ -121,16 +121,3 @@ After publishing the manifest:
 
 4. Restore a backup only if the newer version changed local data in a way that
    needs to be undone.
-
-## Public Repo Preparation
-
-Before making the repository public:
-
-- Remove or archive internal worklogs, private review notes, local screenshots,
-  and deployment-specific notes.
-- Confirm `.env`, backups, logs, test media, and signing private keys are not
-  tracked.
-- Prefer a clean public mirror or clean public branch if the private repository
-  history contains internal notes.
-- Keep development history private if it contains local paths, private
-  operational notes, or anything that should not be permanent public history.
