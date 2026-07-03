@@ -17,6 +17,9 @@ Built-in basic authentication is available, but it is intended as simple local
 protection. For internet-facing access, put Scrubarr behind a reverse proxy,
 VPN, or external access-control service you trust.
 
+If you forget the built-in basic-auth password, see
+[Reset Built-In Basic Authentication](INSTALL.md#reset-built-in-basic-authentication).
+
 Recommended baseline:
 
 - Use HTTPS.

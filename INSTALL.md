@@ -371,6 +371,52 @@ Go to **Settings > Backup and restore**.
 
 Create a backup before changing major settings or updating Scrubarr.
 
+## Reset Built-In Basic Authentication
+
+If you forget the built-in Scrubarr username or password, you can temporarily
+turn basic authentication off from the mounted config file.
+
+Only do this from a trusted network. While basic authentication is disabled,
+anyone who can reach Scrubarr can access it unless you have external
+authentication in front of it.
+
+1. Stop Scrubarr:
+
+   ```bash
+   docker compose stop scrubarr
+   ```
+
+2. Open the Scrubarr config file in your mounted data folder.
+
+   With the example installs, this is usually:
+
+   ```text
+   Windows Docker install: C:\ProgramData\Scrubarr\data\config.json
+   Linux Docker install:   /opt/scrubarr/data/config.json
+   ```
+
+   If you changed the data volume path, open `config.json` from that custom data
+   folder instead.
+
+3. Find the `Auth` section and change only `Enabled` to `false`:
+
+   ```json
+   "Auth": {
+     "Enabled": false,
+     "Username": "admin",
+     "PasswordHash": "..."
+   }
+   ```
+
+4. Start Scrubarr again:
+
+   ```bash
+   docker compose up -d scrubarr
+   ```
+
+5. Open Scrubarr, go to **Settings > Access control**, set a new username and
+   password, enable basic authentication, and save settings.
+
 ## Updates
 
 Scrubarr can check for signed updates and tell you when a newer Docker image is

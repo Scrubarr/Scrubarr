@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-- Prepared the repository for friend/public sharing.
+- Prepared the repository for public sharing.
 - Added clear Windows and Linux install instructions.
 - Added a plain-English feature guide.
 - Cleaned public-facing security and release documentation.
