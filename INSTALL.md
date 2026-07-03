@@ -72,21 +72,37 @@ though Emby or Jellyfin may be installed directly on Windows.
    Docker containers do not always detect the host timezone correctly, so set
    this value explicitly.
 
-5. Change the two `D:/Scrubarr/Leaving Soon/...` volume paths if you want the
-   Leaving Soon queue folders somewhere else.
+5. Choose where the Leaving Soon queue folders should live.
 
-   These are example Windows paths. They must point to folders that your
-   Windows-installed Emby or Jellyfin server can read.
+   The example uses these Windows host folders:
+
+   ```text
+   D:\Scrubarr\Leaving Soon\Movies
+   D:\Scrubarr\Leaving Soon\Shows
+   ```
+
+   Change the two `D:/Scrubarr/Leaving Soon/...` volume paths if you want the
+   queue folders somewhere else.
 
    Keep the `:/queue/movies` and `:/queue/series` parts at the end. Those are
    the paths Scrubarr uses inside Docker.
 
-   In Scrubarr settings, set **Leaving Soon queue root path** to the matching
-   Windows parent folder:
+   If Emby or Jellyfin is installed directly on Windows, set **Leaving Soon queue
+   root path** in Scrubarr settings to the matching Windows parent folder:
 
    ```text
    D:\Scrubarr\Leaving Soon
    ```
+
+   If Emby or Jellyfin is also running in Docker on Windows, mount the same
+   Windows host folders into the Emby or Jellyfin container too. In Scrubarr
+   settings, use the path that the media-server container sees, for example:
+
+   ```text
+   /media/leaving-soon
+   ```
+
+   See [Leaving Soon Queue Folders](#leaving-soon-queue-folders) for examples.
 
 6. Start Scrubarr:
 
@@ -308,7 +324,23 @@ Mount the same host folder into both containers. The folder can have a different
 path inside each container, but it must still be the same real folder on the
 host.
 
-For example:
+For example, on a Windows Docker host:
+
+```text
+Host folder:         D:\Scrubarr\Leaving Soon\Movies
+Scrubarr sees:       /queue/movies
+Emby/Jellyfin sees:  /media/leaving-soon/movies
+```
+
+And for series:
+
+```text
+Host folder:         D:\Scrubarr\Leaving Soon\Shows
+Scrubarr sees:       /queue/series
+Emby/Jellyfin sees:  /media/leaving-soon/series
+```
+
+On a Linux Docker host, the same idea might look like this:
 
 ```text
 Host folder:         /srv/scrubarr/leaving-soon/movies
