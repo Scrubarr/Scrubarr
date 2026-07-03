@@ -217,9 +217,75 @@ The default Docker folders are:
 
 For a simple install, keep the defaults.
 
-If Emby or Jellyfin runs outside the Scrubarr container, make sure the media
-server can read the same queue folders. The paths shown inside Scrubarr must be
-paths the media server can access.
+The important rule is:
+
+- the Docker volume path tells Scrubarr where it can write the `.strm` files
+- the **Leaving Soon queue root path** in Scrubarr settings must be a path that
+  Emby or Jellyfin can read
+
+### Example: media server installed directly on Windows
+
+Use this when Emby or Jellyfin is installed directly on Windows and its
+libraries point to Windows paths.
+
+Create a folder on the Windows host, for example:
+
+```text
+D:\Scrubarr\Leaving Soon
+```
+
+Set the Scrubarr Docker volume paths to use that folder:
+
+```text
+SCRUBARR_MOVIE_QUEUE_HOST_PATH=D:\Scrubarr\Leaving Soon\Movies
+SCRUBARR_SERIES_QUEUE_HOST_PATH=D:\Scrubarr\Leaving Soon\Shows
+```
+
+In Scrubarr settings, set **Leaving Soon queue root path** to:
+
+```text
+D:\Scrubarr\Leaving Soon
+```
+
+Scrubarr will create:
+
+```text
+D:\Scrubarr\Leaving Soon\Movies
+D:\Scrubarr\Leaving Soon\Shows
+```
+
+Emby or Jellyfin will then scan those Windows folders as the Leaving Soon
+libraries.
+
+### Example: media server running in Docker
+
+Use this when Emby or Jellyfin is also running in Docker and its libraries point
+to paths inside that media-server container.
+
+Mount the same host folder into both containers. For example, Scrubarr might
+write to:
+
+```text
+SCRUBARR_MOVIE_QUEUE_HOST_PATH=/srv/scrubarr/leaving-soon/movies
+SCRUBARR_SERIES_QUEUE_HOST_PATH=/srv/scrubarr/leaving-soon/series
+```
+
+Then mount those folders into the Emby or Jellyfin container at a path such as:
+
+```text
+/media/leaving-soon/movies
+/media/leaving-soon/series
+```
+
+In Scrubarr settings, set **Leaving Soon queue root path** to the path the media
+server container sees:
+
+```text
+/media/leaving-soon
+```
+
+Scrubarr writes the files through its own Docker mounts, but it tells Emby or
+Jellyfin to scan the paths visible inside the media-server container.
 
 The `.strm` files point back to the original media files. The original media
 paths must also be playable by Emby or Jellyfin.
