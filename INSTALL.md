@@ -21,7 +21,10 @@ docker login ghcr.io
 Use your GitHub username and a token with package read access. If the package is
 public, this step is not needed.
 
-## Windows Install
+## Windows Docker Install
+
+Use this when Docker is running on Windows. Scrubarr itself runs in Docker, even
+though Emby or Jellyfin may be installed directly on Windows.
 
 1. Create the Scrubarr folder:
 
@@ -56,8 +59,8 @@ public, this step is not needed.
        volumes:
          - ./data:/data
          - ./logs:/logs
-         - ./leaving-soon/movies:/queue/movies
-         - ./leaving-soon/series:/queue/series
+         - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
+         - D:/Scrubarr/Leaving Soon/Shows:/queue/series
        healthcheck:
          test:
            [
@@ -79,19 +82,34 @@ public, this step is not needed.
    Docker containers do not always detect the host timezone correctly, so set
    this value explicitly.
 
-5. Start Scrubarr:
+5. Change the two `D:/Scrubarr/Leaving Soon/...` volume paths if you want the
+   Leaving Soon queue folders somewhere else.
+
+   These are example Windows paths. They must point to folders that your
+   Windows-installed Emby or Jellyfin server can read.
+
+   In Scrubarr settings, set **Leaving Soon queue root path** to the matching
+   Windows parent folder:
+
+   ```text
+   D:\Scrubarr\Leaving Soon
+   ```
+
+6. Start Scrubarr:
 
    ```powershell
    docker compose up -d
    ```
 
-6. Open Scrubarr:
+7. Open Scrubarr:
 
    ```text
    http://localhost:8098
    ```
 
-## Linux Install
+## Linux Docker Install
+
+Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
 
 1. Create the Scrubarr folder:
 
@@ -215,13 +233,14 @@ The default Docker folders are:
 ./leaving-soon/series
 ```
 
-For a simple install, keep the defaults.
-
 The important rule is:
 
 - the Docker volume path tells Scrubarr where it can write the `.strm` files
 - the **Leaving Soon queue root path** in Scrubarr settings must be a path that
   Emby or Jellyfin can read
+
+If Emby or Jellyfin is installed directly on Windows, use absolute Windows paths
+in the Windows Docker install example and change them to suit your system.
 
 ### Example: media server installed directly on Windows
 
@@ -236,9 +255,10 @@ D:\Scrubarr\Leaving Soon
 
 Set the Scrubarr Docker volume paths to use that folder:
 
-```text
-SCRUBARR_MOVIE_QUEUE_HOST_PATH=D:\Scrubarr\Leaving Soon\Movies
-SCRUBARR_SERIES_QUEUE_HOST_PATH=D:\Scrubarr\Leaving Soon\Shows
+```yaml
+volumes:
+  - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
+  - D:/Scrubarr/Leaving Soon/Shows:/queue/series
 ```
 
 In Scrubarr settings, set **Leaving Soon queue root path** to:
