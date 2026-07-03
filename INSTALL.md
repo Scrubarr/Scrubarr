@@ -11,16 +11,6 @@ You need:
 - A folder where Scrubarr can store its settings, logs, backups, and Leaving
   Soon queue files.
 
-If Scrubarr is still being shared privately, you may need to sign in to GitHub
-Container Registry first:
-
-```bash
-docker login ghcr.io
-```
-
-Use your GitHub username and a token with package read access. If the package is
-public, this step is not needed.
-
 ## Windows Docker Install
 
 Use this when Docker is running on Windows. Scrubarr itself runs in Docker, even
