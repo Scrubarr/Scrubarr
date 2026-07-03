@@ -1,0 +1,26 @@
+# Changelog
+
+## 1.0.0
+
+- Prepared the repository for friend/public sharing.
+- Added clear Windows and Linux install instructions.
+- Added a plain-English feature guide.
+- Cleaned public-facing security and release documentation.
+- Removed internal development notes from the public-facing repository tree.
+
+## 0.1.29
+
+- Removed the deletion countdown glow when nothing is pending.
+- Kept the update manifest signed and served from the official update source.
+
+## 0.1.x
+
+- Added Emby cleanup workflow.
+- Added Jellyfin provider support.
+- Added Leaving Soon libraries using `.strm` files.
+- Added preview scans, pending deletion review, exclusions, and deletion
+  countdown.
+- Added Telegram notifications and deletion reports.
+- Added backup and restore.
+- Added signed update checks.
+- Added Docker release workflow.

@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.0.0",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.0.0",
+  "notes": "Public-ready documentation and repository cleanup."
+}

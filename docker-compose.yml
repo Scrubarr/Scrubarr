@@ -1,0 +1,35 @@
+name: scrubarr
+
+services:
+  scrubarr:
+    image: ghcr.io/scrubarr/scrubarr:v1.0.0
+    restart: unless-stopped
+    ports:
+      - "8098:8098"
+    environment:
+      SCRUBARR_HOST: 0.0.0.0
+      SCRUBARR_PORT: 8098
+      SCRUBARR_DATA_DIR: /data
+      SCRUBARR_LOG_DIR: /logs
+      SCRUBARR_BACKUP_DIR: /data/backups
+      SCRUBARR_TIMEZONE: Etc/UTC
+      SCRUBARR_UPDATE_MANIFEST_URL: https://scrubarr.github.io/updates/stable.json
+      SCRUBARR_MOVIE_QUEUE_WRITE_PATH: ${SCRUBARR_MOVIE_QUEUE_WRITE_PATH:-/queue/movies}
+      SCRUBARR_SERIES_QUEUE_WRITE_PATH: ${SCRUBARR_SERIES_QUEUE_WRITE_PATH:-/queue/series}
+    volumes:
+      - ${SCRUBARR_DATA_HOST_PATH:-./data}:/data
+      - ${SCRUBARR_LOG_HOST_PATH:-./logs}:/logs
+      - ${SCRUBARR_MOVIE_QUEUE_HOST_PATH:-./data/leaving-soon/movies}:/queue/movies
+      - ${SCRUBARR_SERIES_QUEUE_HOST_PATH:-./data/leaving-soon/series}:/queue/series
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8098/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

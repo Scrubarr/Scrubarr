@@ -1,0 +1,28 @@
+{
+  "name": "scrubarr",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server",
+    "test:ui": "node scripts/ui-smoke-test.cjs",
+    "test:ui:browser": "node scripts/ui-browser-regression.cjs",
+    "lint": "npm run lint -w client",
+    "release:check": "node scripts/check-release-metadata.cjs",
+    "updates:keygen": "node scripts/generate-update-signing-key.mjs",
+    "updates:sign": "node scripts/sign-update-manifest.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "concurrently": "^9.1.2"
+  },
+  "overrides": {
+    "shell-quote": "^1.8.4"
+  }
+}
