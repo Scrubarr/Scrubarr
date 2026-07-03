@@ -88,6 +88,18 @@ live deletion.
 The owner/developer is not responsible for unwanted deletions, data loss,
 misconfiguration, downtime, or any other result from using Scrubarr.
 
+## Issues And Feature Ideas
+
+Bug reports and feature ideas are welcome, but Scrubarr is maintained as a
+personal project.
+
+There is no support commitment. Changes are made at the maintainer's
+discretion, and feature requests may be declined, changed, delayed, or left
+open if they do not fit the app's direction.
+
+Do not open public issues containing API keys, tokens, exported backups with
+secrets, private URLs, or exploit details. Report security issues privately.
+
 ## Documentation
 
 - [INSTALL.md](INSTALL.md) - Windows and Linux install steps.

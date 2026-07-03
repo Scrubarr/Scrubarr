@@ -1,0 +1,65 @@
+name: Bug report
+description: Report something that appears broken in Scrubarr.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem.
+
+        Scrubarr is maintained as a personal project. Issues are welcome for visibility, but there is no support commitment and fixes are made at the maintainer's discretion.
+
+        Do not include API keys, tokens, exported backups with secrets, private URLs, or screenshots that show sensitive information.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the issue clearly.
+      placeholder: Scrubarr did X when I expected Y.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps that trigger the problem.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Media server
+      options:
+        - Emby
+        - Jellyfin
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Scrubarr version
+      description: Find this in Settings > About and updates.
+      placeholder: v1.0.0
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only safe, reviewed log lines. Remove private URLs, tokens, keys, and hostnames first.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Add any extra context that may help.
+    validations:
+      required: false

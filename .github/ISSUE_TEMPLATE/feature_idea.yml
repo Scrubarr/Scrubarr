@@ -1,0 +1,51 @@
+name: Feature idea
+description: Suggest an improvement or new feature.
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature ideas are welcome, but Scrubarr is maintained as a personal project.
+
+        Requests may be declined, changed, delayed, or left open if they do not fit the maintainer's use case or the app's direction.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Explain the real-world problem or friction.
+      placeholder: I want to...
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Suggested approach
+      description: Describe what you would like Scrubarr to do.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard
+        - Cleanup rules
+        - Pending queue
+        - Exclusions
+        - Scheduler
+        - Logs
+        - Settings
+        - Docker/install
+        - Updates
+        - Notifications
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Notes or tradeoffs
+      description: Anything that would make this safer, simpler, or less cluttered?
+    validations:
+      required: false
