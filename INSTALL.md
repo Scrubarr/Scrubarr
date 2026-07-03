@@ -369,6 +369,84 @@ Jellyfin to scan the paths visible inside the media-server container.
 The `.strm` files point back to the original media files. The original media
 paths must also be playable by Emby or Jellyfin.
 
+## Troubleshooting
+
+### Leaving Soon libraries are empty
+
+If the Leaving Soon libraries exist but show no media, check these first:
+
+1. Confirm Scrubarr has pending items.
+
+   Scrubarr only writes `.strm` files for media currently in the pending queue.
+   If nothing is pending, the Leaving Soon libraries may be empty.
+
+2. Confirm the queue paths match.
+
+   The Docker volume path and the **Leaving Soon queue root path** must point to
+   the same real folders.
+
+   For a media server installed directly on Windows, this usually means:
+
+   ```text
+   Docker volume host path:        D:\Scrubarr\Leaving Soon\Movies
+   Scrubarr queue root setting:    D:\Scrubarr\Leaving Soon
+   Media server scans:             D:\Scrubarr\Leaving Soon\Movies
+   ```
+
+   For a media server running in Docker, this usually means:
+
+   ```text
+   Docker volume host path:        D:\Scrubarr\Leaving Soon\Movies
+   Scrubarr writes inside Docker:  /queue/movies
+   Media server sees:              /media/leaving-soon/movies
+   Scrubarr queue root setting:    /media/leaving-soon
+   ```
+
+3. Confirm Emby or Jellyfin can read the folders.
+
+   Open the media server admin UI and check that the Leaving Soon libraries point
+   to paths visible from the media server's point of view.
+
+4. Trigger or wait for a media-server library scan.
+
+   Scrubarr asks Emby or Jellyfin to scan when it syncs Leaving Soon libraries,
+   but you can also run a scan manually in the media server UI while testing.
+
+### Scrubarr does not create Leaving Soon queue folders or files
+
+If the queue folders or `.strm` files are not being created:
+
+1. Check the Docker volume paths in `docker-compose.yml`.
+
+   The left side is the host folder. The right side is the path inside the
+   Scrubarr container.
+
+   ```yaml
+   volumes:
+     - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
+     - D:/Scrubarr/Leaving Soon/Shows:/queue/series
+   ```
+
+2. Check that the container can write to the host folders.
+
+   Create the folders manually if needed, then make sure Docker has permission
+   to write to them.
+
+3. Check the Scrubarr app log.
+
+   Go to **Logs > App log** and look for path, permission, or library-sync
+   errors.
+
+4. Check Safety.
+
+   The **Safety** page warns about media-server connection problems, missing
+   queue items, and configuration issues that can stop the Leaving Soon libraries
+   from syncing correctly.
+
+5. Confirm there is at least one pending item.
+
+   If the pending queue is empty, Scrubarr may have no `.strm` files to write.
+
 ## Telegram Notifications
 
 Telegram is optional.

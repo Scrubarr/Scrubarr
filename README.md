@@ -54,6 +54,7 @@ The recommended install method is Docker.
 - [Windows Docker install steps](INSTALL.md#windows-docker-install)
 - [Linux Docker install steps](INSTALL.md#linux-docker-install)
 - [First setup checklist](INSTALL.md#first-setup)
+- [Troubleshooting](INSTALL.md#troubleshooting)
 - [Updating Scrubarr](INSTALL.md#updates)
 
 ## Important Safety Notes
