@@ -88,6 +88,9 @@ though Emby or Jellyfin may be installed directly on Windows.
    These are example Windows paths. They must point to folders that your
    Windows-installed Emby or Jellyfin server can read.
 
+   Keep the `:/queue/movies` and `:/queue/series` parts at the end. Those are
+   the paths Scrubarr uses inside Docker.
+
    In Scrubarr settings, set **Leaving Soon queue root path** to the matching
    Windows parent folder:
 
@@ -168,13 +171,33 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
    Docker containers do not always detect the host timezone correctly, so set
    this value explicitly.
 
-5. Start Scrubarr:
+5. Check the Leaving Soon queue folders.
+
+   With the default Linux example, the host folders are:
+
+   ```text
+   /opt/scrubarr/leaving-soon/movies
+   /opt/scrubarr/leaving-soon/series
+   ```
+
+   If Emby or Jellyfin can read those host paths, set **Leaving Soon queue root
+   path** in Scrubarr settings to:
+
+   ```text
+   /opt/scrubarr/leaving-soon
+   ```
+
+   If Emby or Jellyfin also runs in Docker, mount the same host folders into the
+   media-server container and use the paths that media-server container sees.
+   See [Leaving Soon Queue Folders](#leaving-soon-queue-folders).
+
+6. Start Scrubarr:
 
    ```bash
    docker compose up -d
    ```
 
-6. Open Scrubarr:
+7. Open Scrubarr:
 
    ```text
    http://your-server-ip:8098
@@ -233,11 +256,15 @@ The default Docker folders are:
 ./leaving-soon/series
 ```
 
-The important rule is:
+You need two matching paths for the same real folders:
 
-- the Docker volume path tells Scrubarr where it can write the `.strm` files
-- the **Leaving Soon queue root path** in Scrubarr settings must be a path that
-  Emby or Jellyfin can read
+1. The **Docker volume path** tells the Scrubarr container where it can write the
+   `.strm` files.
+2. The **Leaving Soon queue root path** in Scrubarr settings tells Emby or
+   Jellyfin where it can read those same files.
+
+If these do not point to the same real location, Scrubarr may create `.strm`
+files successfully, but the Leaving Soon libraries can appear empty.
 
 If Emby or Jellyfin is installed directly on Windows, use absolute Windows paths
 in the Windows Docker install example and change them to suit your system.
@@ -261,6 +288,9 @@ volumes:
   - D:/Scrubarr/Leaving Soon/Shows:/queue/series
 ```
 
+In each line, the path on the left is the Windows folder. The path on the right
+is only the path inside the Scrubarr Docker container.
+
 In Scrubarr settings, set **Leaving Soon queue root path** to:
 
 ```text
@@ -275,26 +305,33 @@ D:\Scrubarr\Leaving Soon\Shows
 ```
 
 Emby or Jellyfin will then scan those Windows folders as the Leaving Soon
-libraries.
+libraries. Do not use `/queue/movies` or `/queue/series` in Emby/Jellyfin when
+the media server is installed directly on Windows; those paths only exist inside
+the Scrubarr container.
 
 ### Example: media server running in Docker
 
 Use this when Emby or Jellyfin is also running in Docker and its libraries point
 to paths inside that media-server container.
 
-Mount the same host folder into both containers. For example, Scrubarr might
-write to:
+Mount the same host folder into both containers. The folder can have a different
+path inside each container, but it must still be the same real folder on the
+host.
+
+For example:
 
 ```text
-SCRUBARR_MOVIE_QUEUE_HOST_PATH=/srv/scrubarr/leaving-soon/movies
-SCRUBARR_SERIES_QUEUE_HOST_PATH=/srv/scrubarr/leaving-soon/series
+Host folder:         /srv/scrubarr/leaving-soon/movies
+Scrubarr sees:       /queue/movies
+Emby/Jellyfin sees:  /media/leaving-soon/movies
 ```
 
-Then mount those folders into the Emby or Jellyfin container at a path such as:
+And for series:
 
 ```text
-/media/leaving-soon/movies
-/media/leaving-soon/series
+Host folder:         /srv/scrubarr/leaving-soon/series
+Scrubarr sees:       /queue/series
+Emby/Jellyfin sees:  /media/leaving-soon/series
 ```
 
 In Scrubarr settings, set **Leaving Soon queue root path** to the path the media
