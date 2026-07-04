@@ -1,4 +1,7 @@
 node_modules/
+.codex-screenshots/
+dev-jellyfin-test/
+dev-jellyfin-e2e/
 dist/
 .env
 data/*.json
@@ -8,8 +11,9 @@ data/library-sync/
 data/leaving-soon/
 server/data/
 logs/*
-backups/
-*-backups/
+local-backups/
+deployment-backups/
+Scrubarr-private-notes/
 local-update-signing/
 *.private.pem
 *private-key*.pem

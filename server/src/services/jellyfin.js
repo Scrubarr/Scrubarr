@@ -101,7 +101,40 @@ export async function deleteJellyfinVirtualFolder(config, { name }) {
 }
 
 export async function refreshJellyfinLibrary(config) {
-  await jellyfinRequest(config, "/Library/Refresh", {}, { method: "POST" });
+  await jellyfinRequest(config, "/Library/Refresh", {}, {
+    method: "POST",
+    operation: "Library refresh",
+  });
+}
+
+export async function refreshJellyfinLibraryItem(config, itemId) {
+  if (!itemId) throw new Error("Jellyfin library item id is required");
+  await jellyfinRequest(
+    config,
+    `/Items/${encodeURIComponent(itemId)}/Refresh`,
+    {
+      Recursive: true,
+      MetadataRefreshMode: "Default",
+      ImageRefreshMode: "Default",
+      ReplaceAllMetadata: false,
+      ReplaceAllImages: false,
+    },
+    {
+      method: "POST",
+      operation: "Library item refresh",
+    },
+  );
+}
+
+export async function getJellyfinLibraryItemCount(config, itemId) {
+  if (!itemId) throw new Error("Jellyfin library item id is required");
+  const response = await jellyfinRequest(config, "/Items", {
+    ParentId: itemId,
+    Recursive: true,
+    Limit: 0,
+  });
+  const data = await response.json();
+  return Number(data.TotalRecordCount || 0);
 }
 
 async function firstUserId(config) {

@@ -40,7 +40,9 @@ during upgrades.
    - `client/package.json`
    - `server/package.json`
    - `release-manifest.example.json`
-3. Update Docker image tags in:
+3. Update Docker image tags and install examples to the new stable image tag:
+   - `README.md`
+   - `INSTALL.md`
    - `docker-compose.yml`
    - `docker-compose.example.yml`
 4. Update `CHANGELOG.md`.

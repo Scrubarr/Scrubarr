@@ -101,6 +101,11 @@ export function createMaintenanceWorkflows({
         enabled: result.enabled,
         pending: result.pending || 0,
         refreshed: result.refreshed === true,
+        scanRequested: result.scanRequested === true,
+        scanStillInProgress: result.scanStillInProgress === true,
+        indexedItems: result.indexedItems || [],
+        scanWarnings: result.scanWarnings || [],
+        globalScanFallback: result.globalScanFallback === true,
       });
       return result;
     } catch (error) {

@@ -32,14 +32,28 @@ test("deletion library sync is a safe no-op when no items are pending", async ()
   assert.equal(result.message, "No pending items to sync.");
 });
 
-test("deletion library sync creates Emby libraries and queue links", async () => {
+test("deletion library sync creates Emby libraries, queue links, and requests a targeted scan", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
+  let virtualFolderQueryCount = 0;
   globalThis.fetch = async (url, options = {}) => {
-    calls.push({ url: String(url), method: options.method || "GET", body: options.body });
+    const requestUrl = new URL(String(url));
+    calls.push({
+      url: String(url),
+      pathname: requestUrl.pathname,
+      searchParams: requestUrl.searchParams,
+      method: options.method || "GET",
+      body: options.body,
+    });
     if (String(url).includes("/Library/VirtualFolders/Query")) {
-      return Response.json({ Items: [] });
+      virtualFolderQueryCount += 1;
+      return Response.json({
+        Items: virtualFolderQueryCount === 1
+          ? []
+          : [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
     }
+    if (requestUrl.pathname === "/Items") return Response.json({ TotalRecordCount: 1 });
     if (String(url).endsWith("/Users")) {
       return Response.json([{ Id: "user-1" }]);
     }
@@ -85,6 +99,24 @@ test("deletion library sync creates Emby libraries and queue links", async () =>
     assert.equal(result.libraries.length, 1);
     assert.equal(result.libraries[0].created, true);
     assert.equal(result.links[0].linksCreated, 1);
+    assert.equal(result.globalScanFallback, false);
+    assert.deepEqual(result.scanTargets, [
+      {
+        type: "Movie",
+        name: "Movies Leaving Soon",
+        id: "movie-library",
+        targeted: true,
+      },
+    ]);
+    assert.deepEqual(result.indexedItems, [
+      {
+        type: "Movie",
+        name: "Movies Leaving Soon",
+        id: "movie-library",
+        count: 1,
+        refreshProgress: null,
+      },
+    ]);
 
     const linkPath = path.join(movieDirectory, "Example Movie (2020).strm");
     assert.equal(
@@ -101,7 +133,8 @@ test("deletion library sync creates Emby libraries and queue links", async () =>
       /ENOENT/,
     );
     assert.ok(calls.some((call) => call.method === "POST" && call.url.includes("/Library/VirtualFolders")));
-    assert.ok(calls.some((call) => call.method === "POST" && call.url.includes("/Library/Refresh")));
+    assert.ok(calls.some((call) => call.method === "POST" && call.pathname === "/Items/movie-library/Refresh"));
+    assert.ok(!calls.some((call) => call.method === "POST" && call.pathname === "/Library/Refresh"));
   } finally {
     globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });
@@ -180,9 +213,10 @@ test("deletion library sync separates Emby queue paths from write paths", async 
   }
 });
 
-test("deletion library sync creates Jellyfin libraries with Jellyfin API shape", async () => {
+test("deletion library sync creates Jellyfin libraries and requests a targeted Jellyfin scan", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
+  let virtualFolderQueryCount = 0;
   let linkExistedBeforeLibraryCreate = false;
   globalThis.fetch = async (url, options = {}) => {
     const requestUrl = new URL(String(url));
@@ -197,8 +231,14 @@ test("deletion library sync creates Jellyfin libraries with Jellyfin API shape",
       requestUrl.pathname === "/Library/VirtualFolders" &&
       (options.method || "GET") === "GET"
     ) {
-      return Response.json([]);
+      virtualFolderQueryCount += 1;
+      return Response.json(
+        virtualFolderQueryCount === 1
+          ? []
+          : [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      );
     }
+    if (requestUrl.pathname === "/Items") return Response.json({ TotalRecordCount: 1 });
     if (
       requestUrl.pathname === "/Library/VirtualFolders" &&
       (options.method || "GET") === "POST"
@@ -258,6 +298,24 @@ test("deletion library sync creates Jellyfin libraries with Jellyfin API shape",
     assert.equal(result.refreshed, true);
     assert.equal(result.links[0].linksCreated, 1);
     assert.equal(linkExistedBeforeLibraryCreate, true);
+    assert.equal(result.globalScanFallback, false);
+    assert.deepEqual(result.scanTargets, [
+      {
+        type: "Movie",
+        name: "Movies Leaving Soon",
+        id: "movie-library",
+        targeted: true,
+      },
+    ]);
+    assert.deepEqual(result.indexedItems, [
+      {
+        type: "Movie",
+        name: "Movies Leaving Soon",
+        id: "movie-library",
+        count: 1,
+        refreshProgress: null,
+      },
+    ]);
 
     const createLibraryCall = calls.find(
       (call) =>
@@ -275,7 +333,8 @@ test("deletion library sync creates Jellyfin libraries with Jellyfin API shape",
       await fs.readFile(linkPath, "utf8"),
       "/media/movies/Example Movie/Example Movie.mkv\n",
     );
-    assert.ok(calls.some((call) => call.method === "POST" && call.pathname === "/Library/Refresh"));
+    assert.ok(calls.some((call) => call.method === "POST" && call.pathname === "/Items/movie-library/Refresh"));
+    assert.ok(!calls.some((call) => call.method === "POST" && call.pathname === "/Library/Refresh"));
   } finally {
     globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Requested targeted Emby and Jellyfin scans for the specific Leaving Soon
+  libraries after Scrubarr updates `.strm` queue files.
+- Added library sync diagnostics for scan requests, indexed item counts, scan
+  warnings, and global scan fallback.
+- Kept the older global library refresh as a fallback when targeted scans are
+  unavailable.
+
 ## 1.0.0
 
 - Prepared the repository for public sharing.

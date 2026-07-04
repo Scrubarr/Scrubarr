@@ -127,7 +127,40 @@ export async function deleteEmbyVirtualFolder(config, { id }) {
 }
 
 export async function refreshEmbyLibrary(config) {
-  await embyRequest(config, "/Library/Refresh", {}, { method: "POST" });
+  await embyRequest(config, "/Library/Refresh", {}, {
+    method: "POST",
+    operation: "Library refresh",
+  });
+}
+
+export async function refreshEmbyLibraryItem(config, itemId) {
+  if (!itemId) throw new Error("Emby library item id is required");
+  await embyRequest(
+    config,
+    `/Items/${encodeURIComponent(itemId)}/Refresh`,
+    {
+      Recursive: true,
+      MetadataRefreshMode: "Default",
+      ImageRefreshMode: "Default",
+      ReplaceAllMetadata: false,
+      ReplaceAllImages: false,
+    },
+    {
+      method: "POST",
+      operation: "Library item refresh",
+    },
+  );
+}
+
+export async function getEmbyLibraryItemCount(config, itemId) {
+  if (!itemId) throw new Error("Emby library item id is required");
+  const response = await embyRequest(config, "/Items", {
+    ParentId: itemId,
+    Recursive: true,
+    Limit: 0,
+  });
+  const data = await response.json();
+  return Number(data.TotalRecordCount || 0);
 }
 
 async function firstUserId(config) {

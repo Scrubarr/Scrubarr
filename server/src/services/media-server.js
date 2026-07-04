@@ -3,6 +3,7 @@ import {
   deleteEmbyVirtualFolder,
   fetchEmbyPrimaryImage,
   getEmbyGenres,
+  getEmbyLibraryItemCount,
   getEmbyItemMediaPath,
   getEmbyItemsByIds,
   getEmbyActiveSessions,
@@ -11,6 +12,7 @@ import {
   getEmbyUsers,
   getEmbyVirtualFolders,
   refreshEmbyLibrary,
+  refreshEmbyLibraryItem,
   searchEmby,
 } from "./emby.js";
 import {
@@ -18,6 +20,7 @@ import {
   deleteJellyfinVirtualFolder,
   fetchJellyfinPrimaryImage,
   getJellyfinGenres,
+  getJellyfinLibraryItemCount,
   getJellyfinItemMediaPath,
   getJellyfinItemsByIds,
   getJellyfinActiveSessions,
@@ -27,6 +30,7 @@ import {
   getJellyfinVirtualFolders,
   jellyfinHeaders,
   refreshJellyfinLibrary,
+  refreshJellyfinLibraryItem,
   searchJellyfin,
 } from "./jellyfin.js";
 
@@ -43,6 +47,8 @@ const ADAPTERS = {
     ensureVirtualFolder: ensureEmbyVirtualFolder,
     deleteVirtualFolder: deleteEmbyVirtualFolder,
     refreshLibrary: refreshEmbyLibrary,
+    refreshLibraryItem: refreshEmbyLibraryItem,
+    getLibraryItemCount: getEmbyLibraryItemCount,
     getItemMediaPath: getEmbyItemMediaPath,
     getSeriesEpisodes: getEmbySeriesEpisodes,
     search: searchEmby,
@@ -61,6 +67,8 @@ const ADAPTERS = {
     ensureVirtualFolder: ensureJellyfinVirtualFolder,
     deleteVirtualFolder: deleteJellyfinVirtualFolder,
     refreshLibrary: refreshJellyfinLibrary,
+    refreshLibraryItem: refreshJellyfinLibraryItem,
+    getLibraryItemCount: getJellyfinLibraryItemCount,
     getItemMediaPath: getJellyfinItemMediaPath,
     getSeriesEpisodes: getJellyfinSeriesEpisodes,
     search: searchJellyfin,
@@ -163,6 +171,16 @@ export async function deleteMediaServerVirtualFolder(settings, options) {
 export async function refreshMediaServerLibrary(settings) {
   const { adapter, config } = mediaServerConnection(settings);
   return adapter.refreshLibrary(config);
+}
+
+export async function refreshMediaServerLibraryItem(settings, itemId) {
+  const { adapter, config } = mediaServerConnection(settings);
+  return adapter.refreshLibraryItem(config, itemId);
+}
+
+export async function getMediaServerLibraryItemCount(settings, itemId) {
+  const { adapter, config } = mediaServerConnection(settings);
+  return adapter.getLibraryItemCount(config, itemId);
 }
 
 export async function getMediaServerItemMediaPath(settings, itemId) {

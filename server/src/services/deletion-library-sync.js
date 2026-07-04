@@ -5,17 +5,21 @@ import {
   ensureMediaServerVirtualFolder,
   getMediaServerItemMediaPath,
   getMediaServerItemsByIds,
+  getMediaServerLibraryItemCount,
   getMediaServerSeriesEpisodes,
   getMediaServerVirtualFolders,
   mediaServerConfig,
   mediaServerLabel,
   refreshMediaServerLibrary,
+  refreshMediaServerLibraryItem,
 } from "./media-server.js";
 import { createPendingRecords, formatDateInTimezone } from "./pending-queue.js";
 import { activePendingItems } from "./pending-state.js";
 
 const MANIFEST_NAME = ".scrubarr-links.json";
 const STRM_EXTENSION = ".strm";
+const INDEX_CHECK_ATTEMPTS = 3;
+const INDEX_CHECK_DELAY_MS = 750;
 const EMPTY_QUEUE_IGNORE_NAMES = new Set(["desktop.ini", ".ds_store", MANIFEST_NAME]);
 const EMPTY_QUEUE_ARTIFACT_NAMES = new Set([
   "backdrop.jpg",
@@ -58,6 +62,138 @@ function deletionLibraryNameFor(settings, type) {
   return type === "Movie"
     ? config.DeletionLibraries.Movies
     : config.DeletionLibraries.Series;
+}
+
+function deletionLibraryFolderId(folder) {
+  return folder?.ItemId || folder?.Id || null;
+}
+
+function refreshProgress(folder) {
+  const value = Number(folder?.RefreshProgress);
+  return Number.isFinite(value) ? value : null;
+}
+
+function scanInProgress(folder) {
+  const value = refreshProgress(folder);
+  return value !== null && value > 0 && value < 100;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function folderForDeletionLibrary(folders, settings, type) {
+  const libraryName = deletionLibraryNameFor(settings, type);
+  return asList(folders).find((item) => String(item.Name) === libraryName) || null;
+}
+
+async function readIndexState({ settings, types }) {
+  const folders = await getMediaServerVirtualFolders(settings);
+  const indexedItems = [];
+  const warnings = [];
+  let scanStillInProgress = false;
+
+  for (const type of types) {
+    const name = deletionLibraryNameFor(settings, type);
+    const folder = folderForDeletionLibrary(folders, settings, type);
+    const id = deletionLibraryFolderId(folder);
+    const progress = refreshProgress(folder);
+    scanStillInProgress = scanStillInProgress || scanInProgress(folder);
+
+    if (!id) {
+      warnings.push(`${name} could not be found after requesting a scan.`);
+      indexedItems.push({ type, name, id: null, count: null, refreshProgress: progress });
+      continue;
+    }
+
+    try {
+      indexedItems.push({
+        type,
+        name,
+        id: String(id),
+        count: await getMediaServerLibraryItemCount(settings, id),
+        refreshProgress: progress,
+      });
+    } catch (error) {
+      warnings.push(`${name} item count could not be checked: ${error.message}`);
+      indexedItems.push({
+        type,
+        name,
+        id: String(id),
+        count: null,
+        refreshProgress: progress,
+      });
+    }
+  }
+
+  return { indexedItems, scanStillInProgress, warnings };
+}
+
+async function requestDeletionLibraryScan({ settings, types, forceGlobal = false }) {
+  const result = {
+    scanRequested: false,
+    scanTargets: [],
+    scanStillInProgress: false,
+    indexedItems: [],
+    warnings: [],
+    globalFallback: false,
+  };
+
+  if (!canManageMediaServerLibraries(settings)) return result;
+
+  if (forceGlobal) {
+    await refreshMediaServerLibrary(settings);
+    result.scanRequested = true;
+    result.globalFallback = true;
+    return result;
+  }
+
+  if (types.length === 0) return result;
+
+  const folders = await getMediaServerVirtualFolders(settings);
+  let targetedRefreshSucceeded = false;
+  let needsGlobalFallback = false;
+
+  for (const type of types) {
+    const name = deletionLibraryNameFor(settings, type);
+    const folder = folderForDeletionLibrary(folders, settings, type);
+    const id = deletionLibraryFolderId(folder);
+
+    if (!id) {
+      needsGlobalFallback = true;
+      result.warnings.push(`${name} could not be found for a targeted scan.`);
+      continue;
+    }
+
+    try {
+      await refreshMediaServerLibraryItem(settings, id);
+      targetedRefreshSucceeded = true;
+      result.scanRequested = true;
+      result.scanTargets.push({ type, name, id: String(id), targeted: true });
+    } catch (error) {
+      needsGlobalFallback = true;
+      result.warnings.push(`${name} targeted scan failed: ${error.message}`);
+    }
+  }
+
+  if (!targetedRefreshSucceeded || needsGlobalFallback) {
+    await refreshMediaServerLibrary(settings);
+    result.scanRequested = true;
+    result.globalFallback = true;
+  }
+
+  for (let attempt = 0; attempt < INDEX_CHECK_ATTEMPTS; attempt += 1) {
+    const state = await readIndexState({ settings, types });
+    result.indexedItems = state.indexedItems;
+    result.scanStillInProgress = state.scanStillInProgress;
+    result.warnings.push(...state.warnings);
+    if (!state.scanStillInProgress || attempt === INDEX_CHECK_ATTEMPTS - 1) break;
+    await delay(INDEX_CHECK_DELAY_MS);
+  }
+
+  return result;
 }
 
 function canManageMediaServerLibraries(settings) {
@@ -460,7 +596,9 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
       0,
     );
     const removedLibraries = emptyLibraries.removed.length;
-    if (removedLinks > 0 || removedLibraries > 0) await refreshMediaServerLibrary(settings);
+    const scan = removedLinks > 0 || removedLibraries > 0
+      ? await requestDeletionLibraryScan({ settings, types: [], forceGlobal: true })
+      : null;
     return {
       enabled: true,
       provider: label,
@@ -470,7 +608,13 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
       libraryRemovalSkipped: emptyLibraries.skipped,
       links,
       pending: 0,
-      refreshed: removedLinks > 0 || removedLibraries > 0,
+      refreshed: scan?.scanRequested === true,
+      scanRequested: scan?.scanRequested === true,
+      scanTargets: scan?.scanTargets || [],
+      scanStillInProgress: scan?.scanStillInProgress === true,
+      indexedItems: scan?.indexedItems || [],
+      scanWarnings: scan?.warnings || [],
+      globalScanFallback: scan?.globalFallback === true,
     };
   }
 
@@ -507,7 +651,11 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     links,
   });
 
-  await refreshMediaServerLibrary(settings);
+  const scanTypes = [
+    movies.length > 0 && movieLink?.writable ? "Movie" : null,
+    series.length > 0 && seriesLink?.writable ? "Series" : null,
+  ].filter(Boolean);
+  const scan = await requestDeletionLibraryScan({ settings, types: scanTypes });
 
   return {
     enabled: true,
@@ -518,7 +666,13 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     librariesRemoved: emptyLibraries.removed,
     libraryRemovalSkipped: emptyLibraries.skipped,
     links,
-    refreshed: true,
+    refreshed: scan.scanRequested === true,
+    scanRequested: scan.scanRequested === true,
+    scanTargets: scan.scanTargets,
+    scanStillInProgress: scan.scanStillInProgress,
+    indexedItems: scan.indexedItems,
+    scanWarnings: scan.warnings,
+    globalScanFallback: scan.globalFallback,
   };
 }
 

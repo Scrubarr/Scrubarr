@@ -50,6 +50,14 @@ export function entryFromPreviewResult({
           skipped: librarySync.skipped === true,
           pending: Number(librarySync.pending || 0),
           refreshed: librarySync.refreshed === true,
+          scanRequested: librarySync.scanRequested === true,
+          scanStillInProgress: librarySync.scanStillInProgress === true,
+          indexedItems: Array.isArray(librarySync.indexedItems)
+            ? librarySync.indexedItems
+            : [],
+          scanWarnings: Array.isArray(librarySync.scanWarnings)
+            ? librarySync.scanWarnings
+            : [],
           message: safeString(librarySync.message),
         }
       : null,

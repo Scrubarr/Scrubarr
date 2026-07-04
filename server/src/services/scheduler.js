@@ -111,6 +111,10 @@ function librarySyncSummary(result) {
     skipped: result.skipped === true,
     pending: Number(result.pending || 0),
     refreshed: result.refreshed === true,
+    scanRequested: result.scanRequested === true,
+    scanStillInProgress: result.scanStillInProgress === true,
+    indexedItems: Array.isArray(result.indexedItems) ? result.indexedItems : [],
+    scanWarnings: Array.isArray(result.scanWarnings) ? result.scanWarnings : [],
     message: result.message || "",
   };
 }
