@@ -1,6 +1,6 @@
 {
-  "version": "1.0.1",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.0.1",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.0.1",
-  "notes": "Targeted Leaving Soon library scans after queue sync."
+  "version": "1.0.2",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.0.2",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.0.2",
+  "notes": "Arr-safe Radarr/Sonarr pending tag names."
 }

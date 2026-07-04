@@ -25,6 +25,7 @@ import {
   clearValidationForPath,
   validationDetails,
   validationMessageFor,
+  validationSummaryFor,
 } from "../lib/validation.js";
 
 const emptyFilters = {
@@ -525,7 +526,7 @@ export default function CleanupRules() {
       setSaveState({ state: "success", message: "Cleanup rules saved." });
     } catch (error) {
       setValidationErrors(validationDetails(error));
-      setSaveState({ state: "error", message: error.message });
+      setSaveState({ state: "error", message: validationSummaryFor(error) });
     }
   }
 
@@ -706,13 +707,16 @@ export default function CleanupRules() {
         {settings.Arrs.PendingTag.Enabled && (
           <Field
             label="Arr pending tag name"
-            help="The Radarr/Sonarr tag Scrubarr will use for pending items."
+            help="The Radarr/Sonarr tag Scrubarr will use for pending items. Use lowercase letters, numbers, and hyphens only. Example: scrubarr-pending."
             className="md:col-span-3 max-w-md"
             error={fieldError("Arrs.PendingTag.Name")}
           >
             <TextInput
               value={settings.Arrs.PendingTag.Name}
-              placeholder="Scrubarr Pending"
+              placeholder="scrubarr-pending"
+              pattern="[a-z0-9-]+"
+              title="Use lowercase letters, numbers, and hyphens only. Example: scrubarr-pending."
+              autoComplete="off"
               onChange={(value) => set("Arrs.PendingTag.Name", value)}
             />
           </Field>

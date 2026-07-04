@@ -171,6 +171,19 @@ test("rejects invalid Telegram notification policy", () => {
   );
 });
 
+test("rejects Arr pending tag names Radarr cannot accept", () => {
+  const settings = createDefaultSettings(runtime);
+  settings.Arrs.PendingTag.Enabled = true;
+  settings.Arrs.PendingTag.Name = "Scrubarr Pending";
+
+  const errors = validateSettings(settings);
+
+  assert.equal(
+    errors.some((error) => error.includes("Arrs.PendingTag.Name")),
+    true,
+  );
+});
+
 test("rejects invalid cleanup filter ranges and genre lists", () => {
   const settings = createDefaultSettings(runtime);
   settings.CleanupFilters.YearFrom = 2020;

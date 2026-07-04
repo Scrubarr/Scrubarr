@@ -1,5 +1,7 @@
 import path from "node:path";
 
+const ARR_PENDING_TAG_NAME_PATTERN = /^[a-z0-9-]+$/;
+
 export const SECRET_PATHS = [
   "Emby.ApiKey",
   "Jellyfin.ApiKey",
@@ -74,7 +76,7 @@ export function createDefaultSettings(runtime) {
     Arrs: {
       PendingTag: {
         Enabled: false,
-        Name: "Scrubarr Pending",
+        Name: "scrubarr-pending",
       },
       Radarr: {
         Enabled: false,
@@ -465,6 +467,16 @@ export function validateSettings(settings) {
     requireString(settings.Arrs.PendingTag.Name, "Arrs.PendingTag.Name", errors, {
       allowEmpty: false,
     });
+    const pendingTagName = String(settings.Arrs.PendingTag.Name || "").trim();
+    if (
+      settings.Arrs.PendingTag.Enabled === true &&
+      pendingTagName &&
+      !ARR_PENDING_TAG_NAME_PATTERN.test(pendingTagName)
+    ) {
+      errors.push(
+        "Arrs.PendingTag.Name: Radarr/Sonarr tag name must use lowercase letters, numbers, and hyphens only, for example: scrubarr-pending",
+      );
+    }
   }
 
   for (const service of ["Radarr", "Sonarr"]) {

@@ -32,7 +32,7 @@ though Emby or Jellyfin may be installed directly on Windows.
 
    services:
      scrubarr:
-       image: ghcr.io/scrubarr/scrubarr:v1.0.1
+       image: ghcr.io/scrubarr/scrubarr:v1.0.2
        restart: unless-stopped
        ports:
          - "8098:8098"
@@ -137,7 +137,7 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
 
    services:
      scrubarr:
-       image: ghcr.io/scrubarr/scrubarr:v1.0.1
+       image: ghcr.io/scrubarr/scrubarr:v1.0.2
        restart: unless-stopped
        ports:
          - "8098:8098"

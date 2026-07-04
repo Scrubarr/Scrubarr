@@ -53,13 +53,13 @@ test("applyArrPendingTags creates and applies the configured Radarr tag", async 
     assert.equal(request.headers["x-api-key"], "radarr-key");
 
     if (request.method === "GET" && request.url === "/api/v3/tag") {
-      response.end(JSON.stringify(createdTag ? [{ id: 42, label: "Scrubarr Pending" }] : []));
+      response.end(JSON.stringify(createdTag ? [{ id: 42, label: "scrubarr-pending" }] : []));
       return;
     }
 
     if (request.method === "POST" && request.url === "/api/v3/tag") {
       const body = await readJson(request);
-      assert.equal(body.label, "Scrubarr Pending");
+      assert.equal(body.label, "scrubarr-pending");
       createdTag = true;
       response.end(JSON.stringify({ id: 42, label: body.label }));
       return;
@@ -152,6 +152,67 @@ test("removeArrPendingTags removes only the configured Sonarr tag", async () => 
       seriesIds: [9],
       tags: [42],
       applyTags: "remove",
+    });
+  } finally {
+    await close(fixtureServer);
+  }
+});
+
+test("applyArrPendingTags uses an Arr-safe tag label for Sonarr too", async () => {
+  let createdTag = false;
+  let savedEditorPayload = null;
+  const fixtureServer = http.createServer(async (request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    assert.equal(request.headers["x-api-key"], "sonarr-key");
+
+    if (request.method === "GET" && request.url === "/api/v3/tag") {
+      response.end(JSON.stringify(createdTag ? [{ id: 42, label: "scrubarr-pending" }] : []));
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/v3/tag") {
+      const body = await readJson(request);
+      assert.equal(body.label, "scrubarr-pending");
+      createdTag = true;
+      response.end(JSON.stringify({ id: 42, label: body.label }));
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/api/v3/series/9") {
+      response.end(JSON.stringify({ id: 9, title: "Tagged Series", tags: [3] }));
+      return;
+    }
+
+    if (request.method === "PUT" && request.url === "/api/v3/series/editor") {
+      savedEditorPayload = await readJson(request);
+      response.end(JSON.stringify(savedEditorPayload));
+      return;
+    }
+
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not_found" }));
+  });
+  const port = await listen(fixtureServer);
+
+  try {
+    const result = await applyArrPendingTags({
+      settings: tagSettings(`http://127.0.0.1:${port}`),
+      items: [{ Type: "Series", Arr: "Sonarr", ArrId: 9, ItemId: "series-1", Title: "Tagged Series" }],
+    });
+
+    assert.deepEqual(
+      {
+        enabled: result.enabled,
+        updated: result.updated,
+        failed: result.failed,
+        skipped: result.skipped,
+      },
+      { enabled: true, updated: 1, failed: 0, skipped: 0 },
+    );
+    assert.deepEqual(savedEditorPayload, {
+      seriesIds: [9],
+      tags: [42],
+      applyTags: "add",
     });
   } finally {
     await close(fixtureServer);

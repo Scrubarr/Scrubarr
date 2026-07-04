@@ -87,6 +87,7 @@ export function TextInput({
   placeholder,
   autoComplete,
   className = "",
+  ...inputProps
 }) {
   return (
     <input
@@ -95,6 +96,7 @@ export function TextInput({
       value={value ?? ""}
       placeholder={placeholder}
       autoComplete={autoComplete}
+      {...inputProps}
       onChange={(event) => onChange(event.target.value)}
     />
   );

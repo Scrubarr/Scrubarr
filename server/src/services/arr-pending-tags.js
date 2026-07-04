@@ -1,7 +1,7 @@
 import { fetchExternal } from "./external-error.js";
 
 const TIMEOUT_MS = 15000;
-const DEFAULT_TAG_NAME = "Scrubarr Pending";
+const DEFAULT_TAG_NAME = "scrubarr-pending";
 
 function trimUrl(value) {
   return String(value || "").replace(/\/+$/, "");
@@ -14,6 +14,41 @@ function pendingTagSettings(settings) {
     enabled: config.Enabled === true && name.length > 0,
     name,
   };
+}
+
+function arrSafeTagName(label) {
+  const normalized = String(label || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return normalized || "scrubarr-pending";
+}
+
+function uniqueLabels(labels) {
+  const seen = new Set();
+  return labels
+    .map((label) => String(label || "").trim())
+    .filter(Boolean)
+    .filter((label) => {
+      const key = label.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function tagLabelsForConfig(label) {
+  const desired = arrSafeTagName(label);
+  return {
+    desired,
+    legacy: uniqueLabels([desired, label]),
+  };
+}
+
+function tagMatchesLabel(tag, label) {
+  return String(tag?.label || "").toLowerCase() === String(label || "").toLowerCase();
 }
 
 function arrTargetForItem(settings, item) {
@@ -74,7 +109,7 @@ async function getTags(service, config) {
 
 async function ensureTag(service, config, label) {
   const existing = (await getTags(service, config)).find(
-    (tag) => String(tag.label || "").toLowerCase() === label.toLowerCase(),
+    (tag) => tagMatchesLabel(tag, label),
   );
   if (existing?.id) return existing.id;
 
@@ -90,11 +125,12 @@ async function ensureTag(service, config, label) {
   return created.id;
 }
 
-async function tagIdForRemoval(service, config, label) {
-  const existing = (await getTags(service, config)).find(
-    (tag) => String(tag.label || "").toLowerCase() === label.toLowerCase(),
-  );
-  return existing?.id || null;
+async function tagIdsForRemoval(service, config, labels) {
+  const tags = await getTags(service, config);
+  return tags
+    .filter((tag) => labels.some((label) => tagMatchesLabel(tag, label)))
+    .map((tag) => Number(tag.id))
+    .filter(Boolean);
 }
 
 async function fetchArrItem(target) {
@@ -106,7 +142,9 @@ async function fetchArrItem(target) {
   return response.json();
 }
 
-async function saveArrTags(target, tagId, shouldHaveTag) {
+async function saveArrTags(target, tagIds, shouldHaveTag) {
+  const tags = (Array.isArray(tagIds) ? tagIds : [tagIds]).map(Number).filter(Boolean);
+  if (tags.length === 0) return;
   await arrRequest({
     service: target.service,
     config: target.config,
@@ -114,7 +152,7 @@ async function saveArrTags(target, tagId, shouldHaveTag) {
     method: "PUT",
     body: {
       [target.idsKey]: [target.arrId],
-      tags: [Number(tagId)],
+      tags,
       applyTags: shouldHaveTag ? "add" : "remove",
     },
   });
@@ -128,20 +166,24 @@ async function setPendingTag(settings, item, shouldHaveTag) {
   const target = arrTargetForItem(settings, item);
   if (!target) return { skipped: true, reason: "unsupported-arr-target" };
 
-  const tagId = shouldHaveTag
-    ? await ensureTag(target.service, target.config, tagConfig.name)
-    : await tagIdForRemoval(target.service, target.config, tagConfig.name);
-  if (!tagId) return { skipped: true, reason: "tag-not-found" };
+  const tagLabels = tagLabelsForConfig(tagConfig.name);
+  const tagIds = shouldHaveTag
+    ? [await ensureTag(target.service, target.config, tagLabels.desired)]
+    : await tagIdsForRemoval(target.service, target.config, tagLabels.legacy);
+  if (tagIds.length === 0) return { skipped: true, reason: "tag-not-found" };
 
   const arrItem = await fetchArrItem(target);
   const tags = Array.isArray(arrItem.tags) ? arrItem.tags.map(Number) : [];
-  const hasTag = tags.includes(Number(tagId));
+  const currentTagIds = tagIds.filter((tagId) => tags.includes(Number(tagId)));
 
-  if (hasTag === shouldHaveTag) {
+  if (shouldHaveTag && currentTagIds.length > 0) {
+    return { skipped: true, reason: "already-synced" };
+  }
+  if (!shouldHaveTag && currentTagIds.length === 0) {
     return { skipped: true, reason: "already-synced" };
   }
 
-  await saveArrTags(target, tagId, shouldHaveTag);
+  await saveArrTags(target, shouldHaveTag ? tagIds : currentTagIds, shouldHaveTag);
   return { updated: true, service: target.service };
 }
 

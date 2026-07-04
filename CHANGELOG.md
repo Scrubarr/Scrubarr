@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Fixed Radarr pending tag sync by using an Arr-safe tag label format.
+- Added validation and clearer UI guidance for Radarr/Sonarr pending tag names.
+
 ## 1.0.1
 
 - Requested targeted Emby and Jellyfin scans for the specific Leaving Soon

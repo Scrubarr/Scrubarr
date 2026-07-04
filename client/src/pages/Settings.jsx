@@ -38,6 +38,7 @@ import {
   clearValidationForPath,
   validationDetails,
   validationMessageFor,
+  validationSummaryFor,
 } from "../lib/validation.js";
 
 const telegramNotificationPolicies = [
@@ -984,7 +985,7 @@ export default function Settings() {
       setSaveState({ state: "success", message: "Settings saved." });
     } catch (error) {
       setValidationErrors(validationDetails(error));
-      setSaveState({ state: "error", message: error.message });
+      setSaveState({ state: "error", message: validationSummaryFor(error) });
     }
   }
 
