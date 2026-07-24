@@ -256,6 +256,10 @@ function candidateFromDecision(item, decision, now) {
     Path: item.ArrPath || item.Path || null,
     Arr: item.Arr || null,
     ArrId: item.ArrId || null,
+    ProviderIds:
+      item.ProviderIds && typeof item.ProviderIds === "object"
+        ? structuredClone(item.ProviderIds)
+        : {},
     HasPrimaryImage: item.HasPrimaryImage,
     Genres: Array.isArray(item.Genres) ? item.Genres : [],
     Reason: decision.reason,
@@ -280,6 +284,8 @@ export function evaluateCleanupItem({
   activePending = [],
   pendingCounts = pendingCountsByType(activePending),
   selectedCounts = { Movie: 0, Series: 0 },
+  ignorePending = false,
+  ignoreLimits = false,
   now = new Date(),
 } = {}) {
   const filterDecision = matchesCleanupFilters(item, filtersForItem(item, settings));
@@ -290,7 +296,7 @@ export function evaluateCleanupItem({
   if (exclusions.some((excluded) => isSameExclusion(item, excluded))) {
     return { eligible: false, skip: "excluded" };
   }
-  if (activePending.some((tracked) => isSameExclusion(item, tracked))) {
+  if (!ignorePending && activePending.some((tracked) => isSameExclusion(item, tracked))) {
     return { eligible: false, skip: "already-pending" };
   }
 
@@ -307,7 +313,10 @@ export function evaluateCleanupItem({
     Movie: settings.Limits.MaxMoviesMarked,
     Series: settings.Limits.MaxSeriesMarked,
   };
-  if (pendingCounts[item.Type] + selectedCounts[item.Type] >= limits[item.Type]) {
+  if (
+    !ignoreLimits &&
+    pendingCounts[item.Type] + selectedCounts[item.Type] >= limits[item.Type]
+  ) {
     return { eligible: false, skip: `${item.Type.toLowerCase()}-limit` };
   }
 

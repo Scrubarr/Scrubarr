@@ -178,9 +178,9 @@ export async function refreshMediaServerLibraryItem(settings, itemId) {
   return adapter.refreshLibraryItem(config, itemId);
 }
 
-export async function getMediaServerLibraryItemCount(settings, itemId) {
+export async function getMediaServerLibraryItemCount(settings, itemId, options) {
   const { adapter, config } = mediaServerConnection(settings);
-  return adapter.getLibraryItemCount(config, itemId);
+  return adapter.getLibraryItemCount(config, itemId, options);
 }
 
 export async function getMediaServerItemMediaPath(settings, itemId) {
@@ -223,16 +223,56 @@ export async function getMediaServerActiveSessions(settings) {
   return adapter.getActiveSessions(config);
 }
 
+function comparableText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function comparablePath(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const isWindowsOrUncPath = /^[a-z]:\//i.test(normalized) || normalized.startsWith("//");
+  return isWindowsOrUncPath ? normalized.toLowerCase() : normalized;
+}
+
+export function pathsReferToSameMedia(left, right) {
+  const leftPath = comparablePath(left);
+  const rightPath = comparablePath(right);
+  if (!leftPath || !rightPath) return false;
+  return (
+    leftPath === rightPath ||
+    leftPath.startsWith(`${rightPath}/`) ||
+    rightPath.startsWith(`${leftPath}/`)
+  );
+}
+
+function titlesMatch(left, right) {
+  const leftTitle = comparableText(left);
+  const rightTitle = comparableText(right);
+  return Boolean(leftTitle && rightTitle && leftTitle === rightTitle);
+}
+
 export async function activeMediaSessionForItem(settings, item) {
   const sessions = await getMediaServerActiveSessions(settings);
   const itemId = String(item?.ItemId || "");
   const type = String(item?.Type || "");
   const match = sessions.find((session) => {
-    if (session.paused) return false;
     if (type === "Series") {
-      return String(session.seriesId || "") === itemId;
+      return (
+        String(session.seriesId || "") === itemId ||
+        pathsReferToSameMedia(session.mediaPath, item?.Path) ||
+        titlesMatch(session.seriesTitle, item?.Title)
+      );
     }
-    return String(session.itemId || "") === itemId;
+    if (String(session.itemId || "") === itemId) return true;
+    if (pathsReferToSameMedia(session.mediaPath, item?.Path)) return true;
+    if (session.type !== "Movie" || !titlesMatch(session.title, item?.Title)) {
+      return false;
+    }
+    const itemYear = Number(item?.Year) || null;
+    const sessionYear = Number(session.year) || null;
+    return !itemYear || !sessionYear || itemYear === sessionYear;
   });
   return match || null;
 }

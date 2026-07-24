@@ -129,6 +129,7 @@ const queueSubfolders = {
   Movies: "Scrubarr Movies Leaving Soon",
   Series: "Scrubarr Shows Leaving Soon",
 };
+const scrubarrDockerImage = "ghcr.io/scrubarr/scrubarr";
 
 function queuePathSeparator(value) {
   const text = String(value || "");
@@ -185,11 +186,21 @@ function dockerTagFromVersion(value) {
   return normalized.startsWith("v") ? normalized : `v${normalized}`;
 }
 
-function dockerUpdateCommandText(targetTag) {
-  const tag = dockerTagFromVersion(targetTag) || "vX.X.X";
+function dockerImageFromTarget(value) {
+  const target = String(value || "").trim();
+  if (!target) return "";
+  if (target.startsWith(`${scrubarrDockerImage}:`) || target.startsWith(`${scrubarrDockerImage}@`)) {
+    return target;
+  }
+  return `${scrubarrDockerImage}:${dockerTagFromVersion(target)}`;
+}
+
+function dockerUpdateCommandText(targetImage) {
+  const image = dockerImageFromTarget(targetImage) || `${scrubarrDockerImage}:vX.X.X`;
   return [
     "# In the folder containing Scrubarr's docker-compose.yml",
-    `# First edit the Scrubarr image tag to: ghcr.io/scrubarr/scrubarr:${tag}`,
+    "# First change the Scrubarr image line to:",
+    `image: ${image}`,
     "docker compose pull scrubarr",
     "docker compose up -d --no-deps scrubarr",
     "docker compose ps scrubarr",
@@ -244,7 +255,7 @@ function SecretInput({ value, configured, onChange }) {
   );
 }
 
-function EmbyUsersPicker({
+function MediaServerUsersPicker({
   providerLabel = "Emby",
   users,
   state,
@@ -668,8 +679,8 @@ function BackupImportDetail({ candidate, onRestoreModeChange, onSectionToggle })
 
 function GuidedUpdatePanel({
   updateInfo,
-  targetTag,
-  onTargetTagChange,
+  targetImage,
+  onTargetImageChange,
   prepareState,
   copyState,
   onPrepare,
@@ -677,9 +688,13 @@ function GuidedUpdatePanel({
 }) {
   const latest = updateInfo?.lastCheck?.latestVersion;
   const updateAvailable = updateInfo?.lastCheck?.updateAvailable === true;
-  const effectiveTag =
-    dockerTagFromVersion(targetTag) ||
-    (updateAvailable ? dockerTagFromVersion(latest) : "");
+  const signedDigest = updateAvailable
+    ? updateInfo?.lastCheck?.dockerImageDigest || ""
+    : "";
+  const effectiveImage =
+    dockerImageFromTarget(targetImage) ||
+    signedDigest ||
+    (updateAvailable ? `${scrubarrDockerImage}:${dockerTagFromVersion(latest)}` : "");
   const currentTag = dockerTagFromVersion(updateInfo?.currentVersion);
 
   return (
@@ -726,14 +741,19 @@ function GuidedUpdatePanel({
         <div>
           <label className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-200">
             Docker image to install
-            <HelpTooltip text="Used only to generate Docker update commands. Enter the Scrubarr image tag you want to install, for example v0.1.9. Scrubarr does not pull or install this image automatically." />
+            <HelpTooltip text="Used only to generate Docker update commands. When an update includes a signed immutable image digest, Scrubarr fills that exact image automatically. Keep it unchanged to install the reviewed release. You can also enter a known Scrubarr tag, for example v1.0.3. Scrubarr does not pull or install the image automatically." />
           </label>
           <input
             className={`${inputClass} mt-1`}
-            value={targetTag}
-            placeholder={effectiveTag || "vX.X.X"}
-            onChange={(event) => onTargetTagChange(event.target.value)}
+            value={targetImage}
+            placeholder={effectiveImage || "vX.X.X"}
+            onChange={(event) => onTargetImageChange(event.target.value)}
           />
+          {signedDigest && effectiveImage === signedDigest && (
+            <p className="mt-1 text-xs leading-5 text-emerald-300">
+              Using the signed immutable image digest for this release.
+            </p>
+          )}
         </div>
 
         <div className="min-w-0">
@@ -751,7 +771,7 @@ function GuidedUpdatePanel({
             </button>
           </div>
           <pre className="mt-2 max-h-52 overflow-auto rounded-lg border border-line bg-neutral-950 p-3 text-xs leading-5 text-neutral-200">
-            {dockerUpdateCommandText(effectiveTag)}
+            {dockerUpdateCommandText(effectiveImage)}
           </pre>
         </div>
       </div>
@@ -796,15 +816,15 @@ export default function Settings() {
     state: "idle",
     message: "",
   });
-  const [updateTargetTag, setUpdateTargetTag] = useState("");
+  const [updateTargetImage, setUpdateTargetImage] = useState("");
   const [updateCopyState, setUpdateCopyState] = useState("idle");
   const [telegramSendState, setTelegramSendState] = useState({
     state: "idle",
     message: "",
   });
   const [backupState, setBackupState] = useState({ state: "idle", message: "" });
-  const [embyUsers, setEmbyUsers] = useState([]);
-  const [embyUsersState, setEmbyUsersState] = useState({
+  const [mediaServerUsers, setMediaServerUsers] = useState([]);
+  const [mediaServerUsersState, setMediaServerUsersState] = useState({
     state: "idle",
     message: "",
   });
@@ -820,14 +840,14 @@ export default function Settings() {
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [validationErrors, setValidationErrors] = useState([]);
 
-  async function loadEmbyUsers() {
-    setEmbyUsersState({ state: "loading", message: "" });
+  async function loadMediaServerUsers() {
+    setMediaServerUsersState({ state: "loading", message: "" });
     try {
       const data = await fetchMediaServerUsers();
-      setEmbyUsers(data.users || []);
-      setEmbyUsersState({ state: "idle", message: "" });
+      setMediaServerUsers(data.users || []);
+      setMediaServerUsersState({ state: "idle", message: "" });
     } catch (error) {
-      setEmbyUsersState({ state: "error", message: error.message });
+      setMediaServerUsersState({ state: "error", message: error.message });
     }
   }
 
@@ -851,14 +871,14 @@ export default function Settings() {
         setSettings(loadedSettings);
         setUpdateInfo(loadedUpdateInfo);
         setPendingProviderLock(false);
-        setEmbyUsersState({ state: "loading", message: "" });
+        setMediaServerUsersState({ state: "loading", message: "" });
         fetchMediaServerUsers()
           .then((data) => {
-            setEmbyUsers(data.users || []);
-            setEmbyUsersState({ state: "idle", message: "" });
+            setMediaServerUsers(data.users || []);
+            setMediaServerUsersState({ state: "idle", message: "" });
           })
           .catch((error) => {
-            setEmbyUsersState({ state: "error", message: error.message });
+            setMediaServerUsersState({ state: "error", message: error.message });
           });
         setMediaServerLibrariesState({ state: "loading", message: "" });
         fetchMediaServerLibraries(loadedSettings)
@@ -878,9 +898,16 @@ export default function Settings() {
 
   useEffect(() => {
     const latest = updateInfo?.lastCheck?.latestVersion;
+    const digest = updateInfo?.lastCheck?.dockerImageDigest;
     if (!updateInfo?.lastCheck?.updateAvailable || !latest) return;
-    setUpdateTargetTag((current) => current || dockerTagFromVersion(latest));
-  }, [updateInfo?.lastCheck?.latestVersion, updateInfo?.lastCheck?.updateAvailable]);
+    setUpdateTargetImage((current) =>
+      current || digest || dockerTagFromVersion(latest),
+    );
+  }, [
+    updateInfo?.lastCheck?.dockerImageDigest,
+    updateInfo?.lastCheck?.latestVersion,
+    updateInfo?.lastCheck?.updateAvailable,
+  ]);
 
   function set(path, value) {
     setSettings((current) => updateAtPath(current, path, value));
@@ -980,7 +1007,7 @@ export default function Settings() {
       setValidationErrors([]);
       setAuthPasswordConfirm("");
       setPendingProviderLock(false);
-      loadEmbyUsers();
+      loadMediaServerUsers();
       loadMediaServerLibraries(data.settings);
       setSaveState({ state: "success", message: "Settings saved." });
     } catch (error) {
@@ -1043,9 +1070,12 @@ export default function Settings() {
     const latest = updateInfo?.lastCheck?.updateAvailable
       ? updateInfo.lastCheck.latestVersion
       : "";
-    const tag = updateTargetTag || dockerTagFromVersion(latest);
+    const targetImage =
+      updateTargetImage ||
+      updateInfo?.lastCheck?.dockerImageDigest ||
+      dockerTagFromVersion(latest);
     try {
-      await navigator.clipboard.writeText(dockerUpdateCommandText(tag));
+      await navigator.clipboard.writeText(dockerUpdateCommandText(targetImage));
       setUpdateCopyState("copied");
       window.setTimeout(() => setUpdateCopyState("idle"), 2000);
     } catch {
@@ -1090,8 +1120,8 @@ export default function Settings() {
       setBackupState({
         state: "success",
         message: includeSecrets
-          ? "Backup exported with secrets."
-          : "Backup exported without secrets.",
+          ? "Backup exported with credentials."
+          : "Backup exported without credentials. Keep it private: it can still include service URLs, paths, and media state.",
       });
     } catch (error) {
       setBackupState({ state: "error", message: error.message });
@@ -1152,7 +1182,7 @@ export default function Settings() {
       setSettings(loadedSettings);
       setUpdateInfo(loadedUpdateInfo);
       setPendingProviderLock(false);
-      loadEmbyUsers();
+      loadMediaServerUsers();
       setBackupState({ state: "success", message: data.message });
     } catch (error) {
       setBackupState({ state: "error", message: error.message });
@@ -1303,7 +1333,7 @@ export default function Settings() {
               service={mediaProvider}
               settings={settings}
               onSuccess={() => {
-                loadEmbyUsers();
+                loadMediaServerUsers();
                 loadMediaServerLibraries();
               }}
               {...testResult(mediaProvider)}
@@ -1341,13 +1371,13 @@ export default function Settings() {
           onRefresh={() => loadMediaServerLibraries()}
           error={fieldError(`${mediaServerName}.SearchLibraries`)}
         />
-        <EmbyUsersPicker
+        <MediaServerUsersPicker
           providerLabel={mediaServerName}
-          users={embyUsers}
-          state={embyUsersState}
+          users={mediaServerUsers}
+          state={mediaServerUsersState}
           selectedIds={mediaServerConfig.UserIds || []}
           onChange={(value) => set(`${mediaServerName}.UserIds`, value)}
-          onRefresh={loadEmbyUsers}
+          onRefresh={loadMediaServerUsers}
           error={fieldError(`${mediaServerName}.UserIds`)}
         />
         <Toggle
@@ -1380,7 +1410,7 @@ export default function Settings() {
         </Field>
         <Field
           label="Leaving Soon queue root path"
-          help={`Choose the parent folder ${mediaServerName} will scan for Scrubarr's Leaving Soon links. Scrubarr creates separate movie and show subfolders inside this folder.`}
+          help={`Choose the parent folder ${mediaServerName} will scan for Scrubarr's Leaving Soon links. Scrubarr uses separate movie and show subfolders inside it. With Docker, enter the path ${mediaServerName} can see, which may differ from Scrubarr's internal write path.`}
           error={
             fieldError(`${mediaServerName}.ToBeDeletedPaths.Movies`) ||
             fieldError(`${mediaServerName}.ToBeDeletedPaths.Series`)
@@ -1639,7 +1669,7 @@ export default function Settings() {
               className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-medium hover:border-neutral-500 disabled:opacity-60"
             >
               <Download size={16} />
-              Export without secrets
+              Export without credentials
             </button>
             <button
               type="button"
@@ -1648,11 +1678,11 @@ export default function Settings() {
               className="inline-flex items-center gap-2 rounded-lg border border-amber-700/70 px-3 py-2 text-sm font-medium text-amber-100 hover:border-amber-500 disabled:opacity-60"
             >
               <Download size={16} />
-              Export with secrets
+              Export with credentials
             </button>
           </div>
           <p className="text-xs text-neutral-400">
-            Export with secrets includes API keys, Telegram token, and auth password hash.
+            Exports without credentials still include private service URLs, paths, and media state. Exports with credentials also include API keys, Telegram token, and auth password hash.
           </p>
         </div>
         <div className="space-y-2">
@@ -1787,8 +1817,8 @@ export default function Settings() {
         </div>
         <GuidedUpdatePanel
           updateInfo={updateInfo}
-          targetTag={updateTargetTag}
-          onTargetTagChange={setUpdateTargetTag}
+          targetImage={updateTargetImage}
+          onTargetImageChange={setUpdateTargetImage}
           prepareState={updatePrepareState}
           copyState={updateCopyState}
           onPrepare={prepareGuidedUpdate}

@@ -7,8 +7,10 @@ import {
 import { syncDeletionLibraries } from "../services/deletion-library-sync.js";
 import {
   deletionRunLogEntry,
+  expiredPendingItems,
   runDeletionCheck,
 } from "../services/deletion-runner.js";
+import { revalidateDuePendingItems } from "../services/deletion-revalidation.js";
 import {
   applyArrPendingTags,
   removeArrPendingTags,
@@ -67,18 +69,10 @@ export function createMaintenanceWorkflows({
   appLog,
   pendingMutations,
 }) {
-  let librarySyncRunning = false;
+  let librarySyncPromise = null;
+  let librarySyncRequested = false;
 
-  async function syncCurrentDeletionLibraries({ source = "manual" } = {}) {
-    if (librarySyncRunning) {
-      return {
-        enabled: false,
-        skipped: true,
-        message: "Library sync is already running.",
-      };
-    }
-
-    librarySyncRunning = true;
+  async function runDeletionLibrarySync({ source = "manual" } = {}) {
     let settings = null;
     try {
       settings = mergeSettings(defaults, await stores.settingsStore.read());
@@ -118,9 +112,25 @@ export function createMaintenanceWorkflows({
       }
       if (settings) error.settings = settings;
       throw error;
-    } finally {
-      librarySyncRunning = false;
     }
+  }
+
+  async function syncCurrentDeletionLibraries({ source = "manual" } = {}) {
+    librarySyncRequested = true;
+    if (librarySyncPromise) return librarySyncPromise;
+
+    librarySyncPromise = (async () => {
+      let result = null;
+      do {
+        librarySyncRequested = false;
+        result = await runDeletionLibrarySync({ source });
+      } while (librarySyncRequested);
+      return result;
+    })().finally(() => {
+      librarySyncPromise = null;
+    });
+
+    return librarySyncPromise;
   }
 
   async function sendScheduledTelegramNotifications() {
@@ -177,10 +187,25 @@ export function createMaintenanceWorkflows({
     const result = await pendingMutations.run("scheduled-cleanup", async () => {
       const settings = mergeSettings(defaults, await stores.settingsStore.read());
       const pending = await stores.pendingStore.read();
+      const exclusions = await stores.exclusionsStore.read();
+      const dueItems = expiredPendingItems({
+        settings,
+        pending,
+        timezone: runtime.timezone,
+      });
+      const revalidation = settings.CleanupRules?.DryRun === true
+        ? null
+        : await revalidateDuePendingItems({
+            settings,
+            pending,
+            exclusions,
+            dueItems,
+          });
       const cleanupResult = await runDeletionCheck({
         settings,
         pending,
         timezone: runtime.timezone,
+        revalidation,
       });
       if (cleanupResult.deletedTotal > 0) {
         await deletionStats.recordDeletionRun(cleanupResult, {
@@ -189,9 +214,6 @@ export function createMaintenanceWorkflows({
       }
       if (cleanupResult.changed) {
         await stores.pendingStore.write(cleanupResult.pending);
-        await untagPendingItems(cleanupResult.deletedItems, {
-          source: "deletion",
-        });
       }
       if (
         cleanupResult.expiredTotal > 0 ||

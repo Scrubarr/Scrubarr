@@ -2,7 +2,7 @@ name: scrubarr
 
 services:
   scrubarr:
-    image: ghcr.io/scrubarr/scrubarr:v1.0.2
+    image: ghcr.io/scrubarr/scrubarr:v1.1.4
     restart: unless-stopped
     ports:
       - "8098:8098"
@@ -19,8 +19,8 @@ services:
     volumes:
       - ${SCRUBARR_DATA_HOST_PATH:-./data}:/data
       - ${SCRUBARR_LOG_HOST_PATH:-./logs}:/logs
-      - ${SCRUBARR_MOVIE_QUEUE_HOST_PATH:-./data/leaving-soon/movies}:/queue/movies
-      - ${SCRUBARR_SERIES_QUEUE_HOST_PATH:-./data/leaving-soon/series}:/queue/series
+      - "${SCRUBARR_MOVIE_QUEUE_HOST_PATH:-./data/leaving-soon/Scrubarr Movies Leaving Soon}:/queue/movies"
+      - "${SCRUBARR_SERIES_QUEUE_HOST_PATH:-./data/leaving-soon/Scrubarr Shows Leaving Soon}:/queue/series"
     healthcheck:
       test:
         [

@@ -87,5 +87,7 @@ export async function checkForUpdates(
     updateAvailable: compareVersions(manifest.version, APP_VERSION) > 0,
     releaseUrl: typeof manifest.releaseUrl === "string" ? manifest.releaseUrl : null,
     notes: typeof manifest.notes === "string" ? manifest.notes : null,
+    dockerImage: manifest.dockerImage || null,
+    dockerImageDigest: manifest.dockerImageDigest || null,
   };
 }

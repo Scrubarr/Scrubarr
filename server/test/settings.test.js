@@ -101,6 +101,10 @@ test("valid defaults preserve dry run and disable filesystem fallback", () => {
   assert.deepEqual(settings.CleanupRules.DirectFileDeletionAllowedRoots, []);
   assert.equal(settings.CleanupRules.ProtectInProgress, true);
   assert.equal(settings.Mode.Type, "watched");
+  assert.equal(settings.Limits.MaxMoviesMarked, 5);
+  assert.equal(settings.Limits.MaxSeriesMarked, 3);
+  assert.deepEqual(settings.Emby.ToBeDeletedPaths, { Movies: "", Series: "" });
+  assert.deepEqual(settings.Jellyfin.ToBeDeletedPaths, { Movies: "", Series: "" });
 });
 
 test("settings merge ignores unsafe object keys", () => {
@@ -146,17 +150,14 @@ test("rejects unsupported URLs and negative limits", () => {
   assert.equal(errors.some((error) => error.includes("MaxMoviesMarked")), true);
 });
 
-test("rejects notification days outside the deletion window", () => {
+test("ignores legacy notification days because notification policy controls reminders", () => {
   const settings = createDefaultSettings(runtime);
   settings.DeletionSchedule.DaysUntilDeletion = 20;
   settings.DeletionSchedule.NotificationDays = [21, 10, 0];
 
   const errors = validateSettings(settings);
 
-  assert.equal(
-    errors.some((error) => error.includes("NotificationDays")),
-    true,
-  );
+  assert.equal(errors.some((error) => error.includes("NotificationDays")), false);
 });
 
 test("rejects invalid Telegram notification policy", () => {

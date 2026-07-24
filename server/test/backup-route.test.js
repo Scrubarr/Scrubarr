@@ -308,6 +308,98 @@ test("backup import can restore exclusions without replacing other data", async 
   }
 });
 
+test("backup import cannot change or unlock a locked media server provider", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-backup-provider-lock-"));
+  const runtime = runtimeFor(directory);
+  const settings = createDefaultSettings(runtime);
+  settings.MediaServer.Provider = "emby";
+  settings.MediaServer.Locked = true;
+  settings.Emby.ApiKey = "test-key";
+
+  await Promise.all([
+    fs.writeFile(runtime.configFile, JSON.stringify(settings), "utf8"),
+    fs.writeFile(runtime.pendingFile, "[]\n", "utf8"),
+    fs.writeFile(runtime.exclusionsFile, "[]\n", "utf8"),
+    fs.writeFile(runtime.inProgressFile, "[]\n", "utf8"),
+  ]);
+
+  const server = http.createServer(createApp(runtime));
+  const port = await listen(server);
+
+  try {
+    const backup = await (
+      await fetch(`http://127.0.0.1:${port}/api/backup/export`)
+    ).json();
+    backup.data.settings.MediaServer = { Provider: "jellyfin", Locked: false };
+
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/backup/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(backup),
+    });
+    const rejection = await rejected.json();
+    assert.equal(rejected.status, 400);
+    assert.equal(rejection.error, "invalid_backup_settings");
+
+    backup.data.settings.MediaServer = { Provider: "emby", Locked: false };
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/backup/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(backup),
+    });
+    assert.equal(accepted.status, 200);
+    const saved = JSON.parse(await fs.readFile(runtime.configFile, "utf8"));
+    assert.equal(saved.MediaServer.Provider, "emby");
+    assert.equal(saved.MediaServer.Locked, true);
+  } finally {
+    await close(server);
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  }
+});
+
+test("backup import reloads the scheduler after restoring its state", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-backup-scheduler-"));
+  const runtime = runtimeFor(directory);
+  const settings = createDefaultSettings(runtime);
+  await Promise.all([
+    fs.writeFile(runtime.configFile, JSON.stringify(settings), "utf8"),
+    fs.writeFile(runtime.pendingFile, "[]\n", "utf8"),
+    fs.writeFile(runtime.exclusionsFile, "[]\n", "utf8"),
+    fs.writeFile(runtime.inProgressFile, "[]\n", "utf8"),
+  ]);
+
+  let schedulerReloads = 0;
+  const app = createApp(runtime);
+  const server = http.createServer(app);
+  const port = await listen(server);
+
+  try {
+    const backup = await (
+      await fetch(`http://127.0.0.1:${port}/api/backup/export`)
+    ).json();
+    backup.data.scheduler = { config: { enabled: true, frequency: "daily", time: "12:00" } };
+
+    const originalStart = app.locals.scheduler.start.bind(app.locals.scheduler);
+    app.locals.scheduler.start = async () => {
+      schedulerReloads += 1;
+      return originalStart();
+    };
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/backup/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup, mode: "custom", sections: ["scheduler"] }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(schedulerReloads, 1);
+  } finally {
+    app.locals.scheduler.stop();
+    await close(server);
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  }
+});
+
 test("backup import rejects backups with oversized collections", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-backup-large-"));
   const runtime = runtimeFor(directory);

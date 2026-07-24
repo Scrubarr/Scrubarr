@@ -26,6 +26,9 @@ test("writes and reads JSON atomically", async () => {
 
   assert.deepEqual(await store.read(), items);
   assert.equal((await fs.readFile(file, "utf8")).endsWith("\n"), true);
+  if (process.platform !== "win32") {
+    assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+  }
 });
 
 test("accepts legacy UTF-8 BOM files without rewriting them", async () => {
@@ -48,4 +51,3 @@ test("reports malformed JSON instead of replacing it", async () => {
   await assert.rejects(store.read(), JsonStoreError);
   assert.equal(await fs.readFile(file, "utf8"), "{broken");
 });
-

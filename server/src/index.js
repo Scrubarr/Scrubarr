@@ -1,14 +1,14 @@
 import "dotenv/config";
-import fs from "node:fs/promises";
 import { createApp } from "./app.js";
 import { createRuntimeConfig } from "./config/runtime.js";
+import { ensurePrivateDirectory } from "./storage/private-paths.js";
 
 const runtime = createRuntimeConfig();
 
 await Promise.all([
-  fs.mkdir(runtime.dataDirectory, { recursive: true }),
-  fs.mkdir(runtime.deletedDirectory, { recursive: true }),
-  fs.mkdir(runtime.logDirectory, { recursive: true }),
+  ensurePrivateDirectory(runtime.dataDirectory),
+  ensurePrivateDirectory(runtime.deletedDirectory),
+  ensurePrivateDirectory(runtime.logDirectory),
 ]);
 
 const app = createApp(runtime);

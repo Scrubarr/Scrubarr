@@ -32,7 +32,7 @@ though Emby or Jellyfin may be installed directly on Windows.
 
    services:
      scrubarr:
-       image: ghcr.io/scrubarr/scrubarr:v1.0.2
+       image: ghcr.io/scrubarr/scrubarr:v1.1.4
        restart: unless-stopped
        ports:
          - "8098:8098"
@@ -49,8 +49,8 @@ though Emby or Jellyfin may be installed directly on Windows.
        volumes:
          - ./data:/data
          - ./logs:/logs
-         - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
-         - D:/Scrubarr/Leaving Soon/Shows:/queue/series
+         - D:/Scrubarr/Leaving Soon/Scrubarr Movies Leaving Soon:/queue/movies
+         - D:/Scrubarr/Leaving Soon/Scrubarr Shows Leaving Soon:/queue/series
        healthcheck:
          test:
            [
@@ -77,12 +77,14 @@ though Emby or Jellyfin may be installed directly on Windows.
    The example uses these Windows host folders:
 
    ```text
-   D:\Scrubarr\Leaving Soon\Movies
-   D:\Scrubarr\Leaving Soon\Shows
+   D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
+   D:\Scrubarr\Leaving Soon\Scrubarr Shows Leaving Soon
    ```
 
    Change the two `D:/Scrubarr/Leaving Soon/...` volume paths if you want the
-   queue folders somewhere else.
+   queue folders somewhere else. Keep the `Scrubarr Movies Leaving Soon` and
+   `Scrubarr Shows Leaving Soon` subfolder names together with the queue root
+   you choose in the app.
 
    Keep the `:/queue/movies` and `:/queue/series` parts at the end. Those are
    the paths Scrubarr uses inside Docker.
@@ -116,6 +118,10 @@ though Emby or Jellyfin may be installed directly on Windows.
    http://localhost:8098
    ```
 
+8. Before entering API keys, decide how access will be protected. Keep the port
+   private to your trusted network, put Scrubarr behind your external access
+   control, or enable built-in basic authentication immediately after setup.
+
 ## Linux Docker Install
 
 Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
@@ -137,7 +143,7 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
 
    services:
      scrubarr:
-       image: ghcr.io/scrubarr/scrubarr:v1.0.2
+       image: ghcr.io/scrubarr/scrubarr:v1.1.4
        restart: unless-stopped
        ports:
          - "8098:8098"
@@ -154,8 +160,8 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
        volumes:
          - ./data:/data
          - ./logs:/logs
-         - ./leaving-soon/movies:/queue/movies
-         - ./leaving-soon/series:/queue/series
+         - ./data/leaving-soon/Scrubarr Movies Leaving Soon:/queue/movies
+         - ./data/leaving-soon/Scrubarr Shows Leaving Soon:/queue/series
        healthcheck:
          test:
            [
@@ -182,8 +188,8 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
    With the default Linux example, the host folders are:
 
    ```text
-   /opt/scrubarr/leaving-soon/movies
-   /opt/scrubarr/leaving-soon/series
+   /opt/scrubarr/leaving-soon/Scrubarr Movies Leaving Soon
+   /opt/scrubarr/leaving-soon/Scrubarr Shows Leaving Soon
    ```
 
    If Emby or Jellyfin can read those host paths, set **Leaving Soon queue root
@@ -208,6 +214,10 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
    ```text
    http://your-server-ip:8098
    ```
+
+8. Before entering API keys, decide how access will be protected. Keep the port
+   private to your trusted network, put Scrubarr behind your external access
+   control, or enable built-in basic authentication immediately after setup.
 
 ## First Setup
 
@@ -250,16 +260,25 @@ If `host.docker.internal` does not work, use the server LAN IP instead:
 http://192.168.0.10:8096
 ```
 
+On a Linux Docker host, `host.docker.internal` is not always available. Use the
+LAN IP, or add this to the Scrubarr service in `docker-compose.yml` when Docker
+supports the host-gateway mapping:
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
 ## Leaving Soon Queue Folders
 
 Scrubarr writes `.strm` files into queue folders. Emby or Jellyfin reads those
 folders as Leaving Soon libraries.
 
-The default Docker folders are:
+The default Docker host folders are:
 
 ```text
-./leaving-soon/movies
-./leaving-soon/series
+./data/leaving-soon/Scrubarr Movies Leaving Soon
+./data/leaving-soon/Scrubarr Shows Leaving Soon
 ```
 
 You need two matching paths for the same real folders:
@@ -290,8 +309,8 @@ Set the Scrubarr Docker volume paths to use that folder:
 
 ```yaml
 volumes:
-  - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
-  - D:/Scrubarr/Leaving Soon/Shows:/queue/series
+  - D:/Scrubarr/Leaving Soon/Scrubarr Movies Leaving Soon:/queue/movies
+  - D:/Scrubarr/Leaving Soon/Scrubarr Shows Leaving Soon:/queue/series
 ```
 
 In each line, the path on the left is the Windows folder. The path on the right
@@ -306,8 +325,8 @@ D:\Scrubarr\Leaving Soon
 Scrubarr will create:
 
 ```text
-D:\Scrubarr\Leaving Soon\Movies
-D:\Scrubarr\Leaving Soon\Shows
+D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
+D:\Scrubarr\Leaving Soon\Scrubarr Shows Leaving Soon
 ```
 
 Emby or Jellyfin will then scan those Windows folders as the Leaving Soon
@@ -327,7 +346,7 @@ host.
 For example, on a Windows Docker host:
 
 ```text
-Host folder:         D:\Scrubarr\Leaving Soon\Movies
+Host folder:         D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
 Scrubarr sees:       /queue/movies
 Emby/Jellyfin sees:  /media/leaving-soon/movies
 ```
@@ -335,7 +354,7 @@ Emby/Jellyfin sees:  /media/leaving-soon/movies
 And for series:
 
 ```text
-Host folder:         D:\Scrubarr\Leaving Soon\Shows
+Host folder:         D:\Scrubarr\Leaving Soon\Scrubarr Shows Leaving Soon
 Scrubarr sees:       /queue/series
 Emby/Jellyfin sees:  /media/leaving-soon/series
 ```
@@ -343,7 +362,7 @@ Emby/Jellyfin sees:  /media/leaving-soon/series
 On a Linux Docker host, the same idea might look like this:
 
 ```text
-Host folder:         /srv/scrubarr/leaving-soon/movies
+Host folder:         /srv/scrubarr/leaving-soon/Scrubarr Movies Leaving Soon
 Scrubarr sees:       /queue/movies
 Emby/Jellyfin sees:  /media/leaving-soon/movies
 ```
@@ -351,7 +370,7 @@ Emby/Jellyfin sees:  /media/leaving-soon/movies
 And for series:
 
 ```text
-Host folder:         /srv/scrubarr/leaving-soon/series
+Host folder:         /srv/scrubarr/leaving-soon/Scrubarr Shows Leaving Soon
 Scrubarr sees:       /queue/series
 Emby/Jellyfin sees:  /media/leaving-soon/series
 ```
@@ -388,15 +407,15 @@ If the Leaving Soon libraries exist but show no media, check these first:
    For a media server installed directly on Windows, this usually means:
 
    ```text
-   Docker volume host path:        D:\Scrubarr\Leaving Soon\Movies
+   Docker volume host path:        D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
    Scrubarr queue root setting:    D:\Scrubarr\Leaving Soon
-   Media server scans:             D:\Scrubarr\Leaving Soon\Movies
+   Media server scans:             D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
    ```
 
    For a media server running in Docker, this usually means:
 
    ```text
-   Docker volume host path:        D:\Scrubarr\Leaving Soon\Movies
+   Docker volume host path:        D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
    Scrubarr writes inside Docker:  /queue/movies
    Media server sees:              /media/leaving-soon/movies
    Scrubarr queue root setting:    /media/leaving-soon
@@ -423,8 +442,8 @@ If the queue folders or `.strm` files are not being created:
 
    ```yaml
    volumes:
-     - D:/Scrubarr/Leaving Soon/Movies:/queue/movies
-     - D:/Scrubarr/Leaving Soon/Shows:/queue/series
+     - D:/Scrubarr/Leaving Soon/Scrubarr Movies Leaving Soon:/queue/movies
+     - D:/Scrubarr/Leaving Soon/Scrubarr Shows Leaving Soon:/queue/series
    ```
 
 2. Check that the container can write to the host folders.
@@ -460,15 +479,21 @@ To create a bot:
 5. Copy the bot token.
 6. Paste the token into **Settings > Telegram > Bot token**.
 7. Start a chat with the new bot and send it any message.
-8. To get the chat ID, message [@RawDataBot](https://t.me/RawDataBot) and copy
-   the `chat.id` value.
+8. To get the chat ID, open this URL in a browser after sending the bot a
+   message, replacing `<BOT_TOKEN>` with your token:
+
+   ```text
+   https://api.telegram.org/bot<BOT_TOKEN>/getUpdates
+   ```
+
+   Copy the `id` value inside the `chat` object. Keep this URL private because
+   it includes your bot token.
 9. Paste the chat ID into **Settings > Telegram > Chat ID**.
 10. Click **Test connection**.
 11. Click **Send test message**.
 
-For a group or channel, add the Scrubarr bot to the chat first. You can
-temporarily add RawDataBot to the same chat to read the group or channel ID,
-then remove it again.
+For a group or channel, add the Scrubarr bot to the chat first, send a message
+there, then use `getUpdates` to find that chat's `id` value.
 
 Keep the bot token private.
 
@@ -476,8 +501,10 @@ Keep the bot token private.
 
 Go to **Settings > Backup and restore**.
 
-- **Export without secrets** is safest for diagnostics or sharing.
-- **Export with secrets** includes API keys, Telegram token, and auth data.
+- **Export without credentials** still contains private service URLs, paths, and
+  media state. Keep it private and do not attach it to public issues.
+- **Export with credentials** also includes API keys, Telegram token, and auth
+  data. Use it only for private recovery or migration.
 
 Create a backup before changing major settings or updating Scrubarr.
 
@@ -530,7 +557,8 @@ authentication in front of it.
 ## Updates
 
 Scrubarr can check for signed updates and tell you when a newer Docker image is
-available.
+available. Official updates can include an immutable image digest, which points
+to the exact image published for that release.
 
 To update:
 
@@ -538,7 +566,9 @@ To update:
 2. Click **Check for updates**.
 3. Export a backup.
 4. Disable scheduled runs while you test the update.
-5. Change the image tag in `docker-compose.yml`.
+5. Copy the Docker image reference shown by Scrubarr into the `image:` line in
+   `docker-compose.yml`. Keep the full value unchanged when it uses
+   `@sha256`; that is the signed exact image for the release.
 6. Pull and recreate Scrubarr:
 
    ```bash
@@ -549,4 +579,4 @@ To update:
 7. Open Scrubarr and check Settings, Scheduler, Logs, Safety, and Dashboard.
 8. Re-enable scheduled runs when everything looks healthy.
 
-Rollback uses the same steps with the previous image tag.
+Rollback uses the same steps with the previous known-good image tag or digest.

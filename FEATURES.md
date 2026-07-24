@@ -187,10 +187,12 @@ Backups can export settings and state.
 
 You can export:
 
-- without secrets
-- with secrets
+- without credentials
+- with credentials
 
-Exports with secrets include API keys, Telegram token, and auth data.
+Exports without credentials still contain private service URLs, paths, and media
+state, so keep them private. Exports with credentials also include API keys,
+Telegram token, and auth data.
 
 Imports can restore everything or selected sections. Restoring pending deletions
 is an advanced option because old pending items may no longer exist in the queue
@@ -198,7 +200,9 @@ folders or in Radarr/Sonarr.
 
 ## Updates
 
-Scrubarr can check a signed update manifest.
+Scrubarr can check a signed update manifest. Official manifests can include an
+immutable Docker image digest so the guided update commands point to the exact
+published image for that release.
 
 The update check is read-only. It does not pull Docker images, restart the
 container, or change files by itself.

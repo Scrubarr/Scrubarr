@@ -139,3 +139,26 @@ test("app log file view redacts legacy raw lines before returning content", asyn
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("serializes concurrent app log writes so entries are not lost during retention", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-app-log-"));
+  const filePath = path.join(directory, "Scrubarr.log");
+
+  try {
+    const appLog = new AppLogService(filePath);
+    appLog.setRetentionDaysProvider(async () => 30);
+    await Promise.all(
+      Array.from({ length: 20 }, (_value, index) =>
+        appLog.info(`concurrent entry ${index}`),
+      ),
+    );
+
+    const lines = (await fs.readFile(filePath, "utf8"))
+      .split(/\r?\n/)
+      .filter(Boolean);
+    assert.equal(lines.length, 20);
+    assert.equal(lines.every((line) => line.includes("concurrent entry")), true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

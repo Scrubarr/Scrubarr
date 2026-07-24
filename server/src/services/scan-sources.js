@@ -33,23 +33,35 @@ function latestDate(left, right) {
   return leftTime >= rightTime ? left : right;
 }
 
-function createEpisodeActivity() {
+function hasUserData(item) {
+  return (
+    item?.UserData !== null &&
+    item?.UserData !== undefined &&
+    typeof item.UserData === "object"
+  );
+}
+
+function createEpisodeActivity(expectedUserIds = []) {
   return {
     episodeIds: new Set(),
     playedEpisodeIds: new Set(),
     watchHistoryKnown: true,
+    seenUserIds: new Set(),
+    expectedUserIds: new Set(expectedUserIds.map(String)),
     playCount: 0,
     lastPlayedDate: null,
   };
 }
 
-function mergeEpisodeActivity(existing, episode) {
+function mergeEpisodeActivity(existing, episode, userId, expectedUserIds) {
   if (!episode.SeriesId) return existing;
-  const activity = existing || createEpisodeActivity();
+  const activity = existing || createEpisodeActivity(expectedUserIds);
   const episodeId = episode.Id ? String(episode.Id) : null;
   const playCount = Number(episode.UserData?.PlayCount || 0);
   const lastPlayedDate = toDateValue(episode.UserData?.LastPlayedDate);
 
+  activity.seenUserIds.add(String(userId));
+  activity.watchHistoryKnown = activity.watchHistoryKnown && hasUserData(episode);
   if (episodeId) activity.episodeIds.add(episodeId);
   if (episodeId && playCount > 0) activity.playedEpisodeIds.add(episodeId);
   activity.playCount += playCount;
@@ -59,8 +71,11 @@ function mergeEpisodeActivity(existing, episode) {
 }
 
 function serializeEpisodeActivity(activity) {
+  const allUsersRepresented = [...activity.expectedUserIds].every((userId) =>
+    activity.seenUserIds.has(userId),
+  );
   return {
-    WatchHistoryKnown: activity.watchHistoryKnown,
+    WatchHistoryKnown: activity.watchHistoryKnown && allUsersRepresented,
     EpisodeCount: activity.episodeIds.size,
     PlayedEpisodeCount: activity.playedEpisodeIds.size,
     PlayCount: activity.playCount,
@@ -68,7 +83,7 @@ function serializeEpisodeActivity(activity) {
   };
 }
 
-function mergeUserItem(existing, item) {
+function mergeUserItem(existing, item, userId) {
   if (!existing) {
     return {
       ItemId: String(item.Id),
@@ -89,10 +104,8 @@ function mergeUserItem(existing, item) {
         : [],
       HasPrimaryImage: Boolean(item.ImageTags?.Primary),
       InProgress: false,
-      WatchHistoryKnown:
-        item.UserData !== null &&
-        item.UserData !== undefined &&
-        typeof item.UserData === "object",
+      WatchHistoryKnown: hasUserData(item),
+      seenUserIds: new Set([String(userId)]),
       UserData: {
         PlayCount: Number(item.UserData?.PlayCount || 0),
         LastPlayedDate: toDateValue(item.UserData?.LastPlayedDate),
@@ -108,12 +121,67 @@ function mergeUserItem(existing, item) {
     existing.UserData.LastPlayedDate,
     toDateValue(item.UserData?.LastPlayedDate),
   );
-  existing.WatchHistoryKnown =
-    existing.WatchHistoryKnown ||
-    (item.UserData !== null &&
-      item.UserData !== undefined &&
-      typeof item.UserData === "object");
+  existing.seenUserIds.add(String(userId));
+  existing.WatchHistoryKnown = existing.WatchHistoryKnown && hasUserData(item);
   return existing;
+}
+
+export function mergeUserMediaResponses({
+  itemResponses = [],
+  episodeResponses = [],
+  userIds = [],
+  resumeIds = { movieIds: new Set(), seriesIds: new Set() },
+} = {}) {
+  const expectedUserIds = userIds.map(String);
+  const items = new Map();
+  for (const { userId, items: responseItems } of itemResponses) {
+    for (const item of responseItems || []) {
+      if (!item.Id || !["Movie", "Series"].includes(item.Type)) continue;
+      const merged = mergeUserItem(items.get(String(item.Id)), item, userId);
+      merged.InProgress =
+        merged.InProgress ||
+        (merged.Type === "Movie"
+          ? resumeIds.movieIds?.has(merged.ItemId)
+          : resumeIds.seriesIds?.has(merged.ItemId));
+      items.set(String(item.Id), merged);
+    }
+  }
+
+  const episodeActivityBySeriesId = new Map();
+  for (const { userId, items: responseItems } of episodeResponses) {
+    for (const episode of responseItems || []) {
+      if (!episode.Id || episode.Type !== "Episode" || !episode.SeriesId) continue;
+      const seriesId = String(episode.SeriesId);
+      episodeActivityBySeriesId.set(
+        seriesId,
+        mergeEpisodeActivity(
+          episodeActivityBySeriesId.get(seriesId),
+          episode,
+          userId,
+          expectedUserIds,
+        ),
+      );
+    }
+  }
+
+  for (const [seriesId, activity] of episodeActivityBySeriesId.entries()) {
+    const series = items.get(seriesId);
+    if (series?.Type === "Series") {
+      series.EpisodeActivity = serializeEpisodeActivity(activity);
+    }
+  }
+
+  return [...items.values()].map((item) => {
+    const allUsersRepresented = expectedUserIds.every((userId) =>
+      item.seenUserIds.has(userId),
+    );
+    const normalized = {
+      ...item,
+      WatchHistoryKnown: item.WatchHistoryKnown && allUsersRepresented,
+    };
+    delete normalized.seenUserIds;
+    return normalized;
+  });
 }
 
 async function getResumeItemIds(base, headers, userIds, serviceLabel) {
@@ -208,10 +276,13 @@ async function getMediaServerItems(settings) {
         "Fields",
         "Path,DateCreated,PremiereDate,ProductionYear,UserData,ProviderIds,ImageTags,Genres",
       );
-      requests.push(requestJson(url, headers, {
-        service: label,
-        operation: `load ${type.toLowerCase()} items`,
-      }));
+      requests.push({
+        userId,
+        request: requestJson(url, headers, {
+          service: label,
+          operation: `load ${type.toLowerCase()} items`,
+        }),
+      });
 
       if (type === "Series") {
         const episodesUrl = new URL(
@@ -222,49 +293,34 @@ async function getMediaServerItems(settings) {
         episodesUrl.searchParams.set("Recursive", "true");
         episodesUrl.searchParams.set("Limit", "50000");
         episodesUrl.searchParams.set("Fields", "SeriesId,UserData");
-        episodeActivityRequests.push(requestJson(episodesUrl, headers, {
-          service: label,
-          operation: "load episode activity",
-        }));
+        episodeActivityRequests.push({
+          userId,
+          request: requestJson(episodesUrl, headers, {
+            service: label,
+            operation: "load episode activity",
+          }),
+        });
       }
     }
   }
 
   const [responses, episodeActivityResponses, resumeIds] = await Promise.all([
-    Promise.all(requests),
-    Promise.all(episodeActivityRequests),
+    Promise.all(requests.map(async ({ userId, request }) => ({
+      userId,
+      items: (await request).Items || [],
+    }))),
+    Promise.all(episodeActivityRequests.map(async ({ userId, request }) => ({
+      userId,
+      items: (await request).Items || [],
+    }))),
     getResumeItemIds(base, headers, userIds, label),
   ]);
-  const items = new Map();
-  for (const item of responses.flatMap((response) => response.Items || [])) {
-    if (!item.Id || !["Movie", "Series"].includes(item.Type)) continue;
-    const merged = mergeUserItem(items.get(String(item.Id)), item);
-    merged.InProgress =
-      merged.InProgress ||
-      (merged.Type === "Movie"
-        ? resumeIds.movieIds.has(merged.ItemId)
-        : resumeIds.seriesIds.has(merged.ItemId));
-    items.set(String(item.Id), merged);
-  }
-
-  const episodeActivityBySeriesId = new Map();
-  for (const episode of episodeActivityResponses.flatMap((response) => response.Items || [])) {
-    if (!episode.Id || episode.Type !== "Episode" || !episode.SeriesId) continue;
-    const seriesId = String(episode.SeriesId);
-    episodeActivityBySeriesId.set(
-      seriesId,
-      mergeEpisodeActivity(episodeActivityBySeriesId.get(seriesId), episode),
-    );
-  }
-
-  for (const [seriesId, activity] of episodeActivityBySeriesId.entries()) {
-    const series = items.get(seriesId);
-    if (series?.Type === "Series") {
-      series.EpisodeActivity = serializeEpisodeActivity(activity);
-    }
-  }
-
-  return [...items.values()];
+  return mergeUserMediaResponses({
+    itemResponses: responses,
+    episodeResponses: episodeActivityResponses,
+    userIds,
+    resumeIds,
+  });
 }
 
 async function getArrCatalog(config, endpoint) {

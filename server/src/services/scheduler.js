@@ -1,6 +1,7 @@
 import {
   entryFromError,
   entryFromPreviewResult,
+  runStatusFromStages,
 } from "./run-log.js";
 
 const DEFAULT_CONFIG = Object.freeze({
@@ -139,13 +140,14 @@ function cleanupSummary(result) {
     expired: Number(result.expiredTotal || 0),
     deleted: Number(result.deletedTotal || 0),
     failed: Number(result.failedTotal || 0),
+    deferred: Number(result.deferredTotal || 0),
     message: result.message || "",
   };
 }
 
 function runSummary(result, startedAt, completedAt, librarySync, notifications, cleanup) {
   return {
-    status: "success",
+    status: runStatusFromStages({ librarySync, notifications, cleanup }),
     startedAt,
     completedAt,
     readOnly: result.readOnly !== false,

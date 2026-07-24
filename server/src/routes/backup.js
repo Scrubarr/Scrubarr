@@ -210,6 +210,7 @@ export function createBackupRouter({
   librarySyncManifestDirectory,
   timezone = "UTC",
   pendingMutations = passThroughMutations,
+  onSchedulerRestored = async () => {},
 }) {
   const router = Router();
 
@@ -329,6 +330,22 @@ export function createBackupRouter({
                 ),
             defaults,
           );
+          if (currentSettings.MediaServer?.Locked === true) {
+            const currentProvider = String(currentSettings.MediaServer.Provider || "emby");
+            const restoredProvider = String(settings.MediaServer?.Provider || "emby");
+            if (restoredProvider !== currentProvider) {
+              return {
+                status: 400,
+                body: {
+                  error: "invalid_backup_settings",
+                  details: [
+                    "A backup cannot change the media server provider after this Scrubarr install is locked",
+                  ],
+                },
+              };
+            }
+            settings.MediaServer.Locked = true;
+          }
           const errors = validateSettings(settings);
           if (errors.length > 0) {
             return {
@@ -426,6 +443,9 @@ export function createBackupRouter({
           exclusionCount: asArray(backup.data.exclusions).length,
           queueRebuildAdded: reconciled.added,
         });
+        if (shouldRestore(sections, "scheduler")) {
+          await onSchedulerRestored();
+        }
         return {
           status: 200,
           body: {

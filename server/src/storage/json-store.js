@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  ensurePrivateDirectory,
+  PRIVATE_FILE_MODE,
+  protectPrivateFile,
+} from "./private-paths.js";
 
 export class JsonStoreError extends Error {
   constructor(message, options) {
@@ -46,15 +51,16 @@ export class JsonStore {
       `.${path.basename(this.filePath)}.${randomUUID()}.tmp`,
     );
 
-    await fs.mkdir(directory, { recursive: true });
+    await ensurePrivateDirectory(directory);
 
     try {
       await fs.writeFile(
         temporaryFile,
         `${JSON.stringify(value, null, 2)}\n`,
-        "utf8",
+        { encoding: "utf8", mode: PRIVATE_FILE_MODE },
       );
       await fs.rename(temporaryFile, this.filePath);
+      await protectPrivateFile(this.filePath);
     } catch (error) {
       await fs.rm(temporaryFile, { force: true }).catch(() => {});
       throw new JsonStoreError(
@@ -64,4 +70,3 @@ export class JsonStore {
     }
   }
 }
-

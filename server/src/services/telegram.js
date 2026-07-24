@@ -131,7 +131,7 @@ export function formatPendingNotification(items) {
     }
 
     for (const days of [...byDays.keys()].sort((left, right) => right - left)) {
-      lines.push(`${days} day(s) remaining:`);
+      lines.push(`${days} ${days === 1 ? "day" : "days"} remaining:`);
       for (const item of sortByTitle(byDays.get(days))) {
         lines.push(`• ${escapeTelegramHtml(titleOf(item))}`);
       }

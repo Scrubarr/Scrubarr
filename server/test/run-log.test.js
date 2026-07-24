@@ -41,6 +41,7 @@ test("creates compact read-only preview log entries", () => {
       enabled: true,
       pending: 2,
       refreshed: true,
+      scanWarnings: ["Movies Leaving Soon scan completed but no items were indexed."],
       message: "Deletion library sync completed.",
     },
   });
@@ -52,7 +53,10 @@ test("creates compact read-only preview log entries", () => {
   assert.equal(entry.candidates, 1);
   assert.equal(entry.librarySync.enabled, true);
   assert.equal(entry.librarySync.refreshed, true);
-  assert.deepEqual(entry.warnings, ["Radarr unavailable"]);
+  assert.deepEqual(entry.warnings, [
+    "Radarr unavailable",
+    "Movies Leaving Soon scan completed but no items were indexed.",
+  ]);
   assert.equal(JSON.stringify(entry).includes("ApiKey"), false);
 });
 
@@ -105,6 +109,24 @@ test("prepends and caps run log entries", async () => {
   const entries = await log.list({ limit: 5 });
   assert.deepEqual(entries.map((entry) => entry.id), ["204", "203", "202", "201", "200"]);
   assert.equal(store.value.length, 200);
+});
+
+test("serializes concurrent appends so no run log entries are lost", async () => {
+  class DelayedMemoryStore extends MemoryStore {
+    async read() {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return super.read();
+    }
+  }
+
+  const log = new RunLogService(new DelayedMemoryStore());
+  await Promise.all([
+    log.append({ id: "first", source: "manual", status: "success" }),
+    log.append({ id: "second", source: "scheduler", status: "success" }),
+  ]);
+
+  const entries = await log.list();
+  assert.deepEqual(entries.map((entry) => entry.id), ["second", "first"]);
 });
 
 test("returns raw file content fallback when no file path exists", async () => {

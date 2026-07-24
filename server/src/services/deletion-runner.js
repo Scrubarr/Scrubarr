@@ -35,11 +35,18 @@ async function deleteViaFileSystem(item, settings) {
   return { method: "filesystem", message: "Deleted directly from filesystem after path guard" };
 }
 
+function canUseDirectFallback(error) {
+  return error?.code === "arr_delete_unavailable";
+}
+
 async function deletePendingItem({ item, settings, deleteItem }) {
   try {
     return await deleteItem(settings, item);
   } catch (arrError) {
-    if (settings?.CleanupRules?.FallbackFileDeletion !== true) {
+    if (
+      settings?.CleanupRules?.FallbackFileDeletion !== true ||
+      !canUseDirectFallback(arrError)
+    ) {
       throw arrError;
     }
     try {
@@ -55,7 +62,8 @@ async function deletePendingItem({ item, settings, deleteItem }) {
 function activePlaybackMessage(session) {
   const location = [session.client, session.deviceName].filter(Boolean).join(" on ");
   const suffix = location ? ` (${location})` : "";
-  return `${session.title || "Media"} is currently playing for ${session.userName}${suffix}.`;
+  const activity = session.paused ? "paused" : "currently playing";
+  return `${session.title || "Media"} is ${activity} for ${session.userName || "a user"}${suffix}.`;
 }
 
 async function defaultActiveStreamChecker(settings, item) {
@@ -119,11 +127,23 @@ export async function runDeletionCheck({
   sendMessage = sendTelegramMessage,
   deleteItem = deleteViaArr,
   activeStreamChecker = defaultActiveStreamChecker,
+  revalidation = null,
 } = {}) {
   const startedAt = now.toISOString();
   const expired = expiredPendingItems({ pending, settings, now, timezone });
   const counts = deletedCounts(expired);
   const dryRun = settings?.CleanupRules?.DryRun === true;
+  const hasFinalRevalidation = Array.isArray(revalidation?.allowedItems);
+  const eligibleForDeletion = !dryRun && hasFinalRevalidation
+    ? revalidation.allowedItems
+    : [];
+  const deferred = !dryRun && hasFinalRevalidation
+    ? [...(Array.isArray(revalidation?.deferredItems) ? revalidation.deferredItems : [])]
+    : expired.map((item) => ({
+      ...item,
+      SkipCode: "revalidation-required",
+      SkipMessage: "Deletion deferred because final revalidation was not completed.",
+    }));
   let telegram = null;
   let failureTelegram = null;
 
@@ -162,6 +182,9 @@ export async function runDeletionCheck({
       deletedTotal: 0,
       failedItems: [],
       failedTotal: 0,
+      deferredItems: [],
+      deferredTotal: 0,
+      revalidationWarnings: [],
       pending,
       changed: false,
       telegram,
@@ -177,11 +200,16 @@ export async function runDeletionCheck({
   const deletedById = new Map();
   const deletedDate = dateStamp(now, timezone);
 
-  for (const item of expired) {
+  for (const item of eligibleForDeletion) {
     try {
       const activeSession = await activeStreamChecker(settings, item);
       if (activeSession) {
-        throw new Error(`Active stream detected: ${activePlaybackMessage(activeSession)}`);
+        deferred.push({
+          ...item,
+          SkipCode: "media-in-use",
+          SkipMessage: `Deletion deferred because media is in use: ${activePlaybackMessage(activeSession)}`,
+        });
+        continue;
       }
       const deletion = await deletePendingItem({ item, settings, deleteItem });
       const nextItem = {
@@ -241,8 +269,13 @@ export async function runDeletionCheck({
   }
 
   const completedAt = new Date().toISOString();
+  const status = failed.length > 0
+    ? (deleted.length > 0 || deferred.length > 0 ? "partial" : "failed")
+    : deferred.length > 0
+      ? "partial"
+      : "success";
   return {
-    status: failed.length > 0 ? (deleted.length > 0 ? "partial" : "failed") : "success",
+    status,
     type: "deletion",
     dryRun: false,
     startedAt,
@@ -257,13 +290,18 @@ export async function runDeletionCheck({
     deletedTotal: deletedSummary.total,
     failedItems: failed,
     failedTotal: failed.length,
+    deferredItems: deferred,
+    deferredTotal: deferred.length,
+    revalidationWarnings: Array.isArray(revalidation?.warnings)
+      ? revalidation.warnings
+      : [],
     pending: updatedPending,
     changed: deleted.length > 0,
     telegram,
     failureTelegram,
     message: expired.length === 0
       ? "No pending items have reached their deletion date."
-      : `Deletion run complete: ${deleted.length} deleted, ${failed.length} failed.`,
+      : `Deletion run complete: ${deleted.length} deleted, ${failed.length} failed, ${deferred.length} deferred.`,
   };
 }
 
@@ -286,6 +324,9 @@ export function deletionRunLogEntry(result, { source = "manual" } = {}) {
     deletedTotal: result.deletedTotal,
     failedItems: result.failedItems,
     failedTotal: result.failedTotal,
+    deferredItems: result.deferredItems,
+    deferredTotal: result.deferredTotal,
+    revalidationWarnings: result.revalidationWarnings,
     telegram: result.telegram,
     failureTelegram: result.failureTelegram,
     message: result.message,

@@ -18,6 +18,7 @@ export const DEFAULT_TRUSTED_UPDATE_KEYS = Object.freeze({
 const ALLOWED_MANIFEST_KEYS = new Set([
   "version",
   "dockerImage",
+  "dockerImageDigest",
   "releaseUrl",
   "notes",
   "signature",
@@ -26,10 +27,13 @@ const ALLOWED_SIGNATURE_KEYS = new Set(["algorithm", "keyId", "value"]);
 const MAX_VERSION_LENGTH = 32;
 const MAX_RELEASE_URL_LENGTH = 500;
 const MAX_DOCKER_IMAGE_LENGTH = 200;
+const MAX_DOCKER_IMAGE_DIGEST_LENGTH = 250;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_SIGNATURE_KEY_ID_LENGTH = 128;
 const MAX_SIGNATURE_VALUE_LENGTH = 1024;
 const VERSION_PATTERN = /^v?\d+\.\d+\.\d+$/;
+const DOCKER_IMAGE_DIGEST_PATTERN =
+  /^ghcr\.io\/scrubarr\/scrubarr@sha256:[a-f0-9]{64}$/;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -83,6 +87,11 @@ function assertManifestShape(manifest, { requireSignature = true } = {}) {
   assertString(manifest.dockerImage, {
     name: "Update manifest Docker image",
     maxLength: MAX_DOCKER_IMAGE_LENGTH,
+  });
+  assertString(manifest.dockerImageDigest, {
+    name: "Update manifest Docker image digest",
+    maxLength: MAX_DOCKER_IMAGE_DIGEST_LENGTH,
+    pattern: DOCKER_IMAGE_DIGEST_PATTERN,
   });
   assertString(manifest.notes, {
     name: "Update manifest notes",
@@ -194,6 +203,14 @@ function assertTrustedDockerImage(dockerImage, version) {
   return dockerImage;
 }
 
+function assertTrustedDockerImageDigest(dockerImageDigest) {
+  if (!dockerImageDigest) return null;
+  if (!DOCKER_IMAGE_DIGEST_PATTERN.test(dockerImageDigest)) {
+    throw new Error("Update Docker image digest is not trusted.");
+  }
+  return dockerImageDigest;
+}
+
 function signatureValue(signature) {
   if (!isPlainObject(signature)) return "";
   if (signature.algorithm !== "ed25519") return "";
@@ -249,11 +266,15 @@ export function assertTrustedManifest(
 
   const releaseUrl = assertTrustedReleaseUrl(manifest.releaseUrl, version);
   const dockerImage = assertTrustedDockerImage(manifest.dockerImage, version);
+  const dockerImageDigest = assertTrustedDockerImageDigest(
+    manifest.dockerImageDigest,
+  );
 
   return {
     ...manifest,
     version,
     releaseUrl,
     dockerImage,
+    dockerImageDigest,
   };
 }

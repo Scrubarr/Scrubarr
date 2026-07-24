@@ -5,6 +5,11 @@ import {
   redactAppLogLine,
   safeMessage,
 } from "./log-redaction.js";
+import {
+  ensurePrivateDirectory,
+  PRIVATE_FILE_MODE,
+  protectPrivateFile,
+} from "../storage/private-paths.js";
 
 const MAX_LINES = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -14,6 +19,7 @@ export class AppLogService {
     this.filePath = filePath;
     this.debugEnabledProvider = async () => false;
     this.retentionDaysProvider = async () => null;
+    this.writeTail = Promise.resolve();
   }
 
   setDebugEnabledProvider(provider) {
@@ -54,21 +60,38 @@ export class AppLogService {
     });
 
     if (retained.length !== lines.length) {
-      await fs.writeFile(this.filePath, `${retained.join("\n")}\n`, "utf8");
+      await fs.writeFile(this.filePath, `${retained.join("\n")}\n`, {
+        encoding: "utf8",
+        mode: PRIVATE_FILE_MODE,
+      });
+      await protectPrivateFile(this.filePath);
     }
   }
 
-  async write(level, message, meta = {}) {
+  async writeEntry(level, message, meta = {}) {
     const entry = redactAppLogEntry({
       timestamp: new Date().toISOString(),
       level,
       message: safeMessage(message),
       ...(meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {}),
     });
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+    await ensurePrivateDirectory(path.dirname(this.filePath));
+    await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, {
+      encoding: "utf8",
+      mode: PRIVATE_FILE_MODE,
+    });
+    await protectPrivateFile(this.filePath);
     await this.applyRetention();
     return entry;
+  }
+
+  async write(level, message, meta = {}) {
+    const task = this.writeTail.then(
+      () => this.writeEntry(level, message, meta),
+      () => this.writeEntry(level, message, meta),
+    );
+    this.writeTail = task.catch(() => {});
+    return task;
   }
 
   info(message, meta) {

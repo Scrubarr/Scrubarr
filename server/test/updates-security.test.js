@@ -50,9 +50,11 @@ test("update checks accept a signed official Scrubarr manifest", async () => {
   const keys = testKeys();
   const manifest = signedManifest(
     {
-      version: "1.0.99",
-      dockerImage: "ghcr.io/scrubarr/scrubarr:v1.0.99",
-      releaseUrl: "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.0.99",
+      version: "1.1.99",
+      dockerImage: "ghcr.io/scrubarr/scrubarr:v1.1.99",
+      dockerImageDigest:
+        "ghcr.io/scrubarr/scrubarr@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      releaseUrl: "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.1.99",
       notes: "Signed test release",
     },
     keys,
@@ -64,10 +66,34 @@ test("update checks accept a signed official Scrubarr manifest", async () => {
   });
 
   assert.equal(result.configured, true);
-  assert.equal(result.latestVersion, "1.0.99");
+  assert.equal(result.latestVersion, "1.1.99");
   assert.equal(result.updateAvailable, true);
   assert.equal(result.releaseUrl, manifest.releaseUrl);
   assert.equal(result.notes, "Signed test release");
+  assert.equal(
+    result.dockerImageDigest,
+    "ghcr.io/scrubarr/scrubarr@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
+});
+
+test("update checks keep accepting signed legacy manifests during the digest transition", async () => {
+  const keys = testKeys();
+  const manifest = signedManifest(
+    {
+      version: "1.1.99",
+      dockerImage: "ghcr.io/scrubarr/scrubarr:v1.1.99",
+      releaseUrl: "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.1.99",
+    },
+    keys,
+  );
+
+  const result = await checkForUpdates(manifestUrl, {
+    trustedKeys: { [keys.keyId]: keys.publicKey },
+    fetchImpl: async () => responseFor(manifest),
+  });
+
+  assert.equal(result.updateAvailable, true);
+  assert.equal(result.dockerImageDigest, null);
 });
 
 test("update checks reject untrusted manifest URLs before fetching", async () => {
@@ -84,6 +110,30 @@ test("update checks reject untrusted manifest URLs before fetching", async () =>
   );
 
   assert.equal(fetched, false);
+});
+
+test("update checks reject a signed digest for another Docker image", async () => {
+  const keys = testKeys();
+  await assert.rejects(
+    checkForUpdates(manifestUrl, {
+      trustedKeys: { [keys.keyId]: keys.publicKey },
+      fetchImpl: async () =>
+        responseFor(
+          signedManifest(
+            {
+              version: "1.0.99",
+              dockerImage: "ghcr.io/scrubarr/scrubarr:v1.0.99",
+              dockerImageDigest:
+                "ghcr.io/example/other@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              releaseUrl:
+                "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.0.99",
+            },
+            keys,
+          ),
+        ),
+    }),
+    /Docker image digest is invalid|Docker image digest is not trusted/,
+  );
 });
 
 test("update checks reject unsigned manifests", async () => {

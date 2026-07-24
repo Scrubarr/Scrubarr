@@ -17,6 +17,7 @@ import { createPendingRecords, formatDateInTimezone } from "./pending-queue.js";
 import { activePendingItems } from "./pending-state.js";
 
 const MANIFEST_NAME = ".scrubarr-links.json";
+const LIBRARY_OWNERSHIP_FILE = "deletion-library-ownership.json";
 const STRM_EXTENSION = ".strm";
 const INDEX_CHECK_ATTEMPTS = 3;
 const INDEX_CHECK_DELAY_MS = 750;
@@ -89,9 +90,11 @@ function folderForDeletionLibrary(folders, settings, type) {
   return asList(folders).find((item) => String(item.Name) === libraryName) || null;
 }
 
-async function readIndexState({ settings, types }) {
+async function readIndexState({ settings, types, expectedCounts = {} }) {
   const folders = await getMediaServerVirtualFolders(settings);
   const indexedItems = [];
+  const missingExpectedItems = [];
+  const mismatchedExpectedItems = [];
   const warnings = [];
   let scanStillInProgress = false;
 
@@ -109,13 +112,26 @@ async function readIndexState({ settings, types }) {
     }
 
     try {
+      const count = await getMediaServerLibraryItemCount(settings, id, {
+        // Series queues contain episode .strm files. Count top-level series titles,
+        // rather than every indexed episode, so this remains comparable to pending.
+        includeItemTypes: type === "Movie" ? "Movie" : "Series",
+      });
       indexedItems.push({
         type,
         name,
         id: String(id),
-        count: await getMediaServerLibraryItemCount(settings, id),
+        count,
         refreshProgress: progress,
       });
+      const hasExpectedCount = Object.hasOwn(expectedCounts, type);
+      const expected = Number(expectedCounts[type] || 0);
+      if (expected > 0 && count === 0) {
+        missingExpectedItems.push({ type, name });
+      }
+      if (hasExpectedCount && Number.isFinite(expected) && count !== expected) {
+        mismatchedExpectedItems.push({ type, name, count, expected });
+      }
     } catch (error) {
       warnings.push(`${name} item count could not be checked: ${error.message}`);
       indexedItems.push({
@@ -128,10 +144,50 @@ async function readIndexState({ settings, types }) {
     }
   }
 
-  return { indexedItems, scanStillInProgress, warnings };
+  return {
+    indexedItems,
+    missingExpectedItems,
+    mismatchedExpectedItems,
+    scanStillInProgress,
+    warnings,
+  };
 }
 
-async function requestDeletionLibraryScan({ settings, types, forceGlobal = false }) {
+async function waitForIndexState({ settings, types, expectedCounts }) {
+  let finalState = null;
+
+  for (let attempt = 0; attempt < INDEX_CHECK_ATTEMPTS; attempt += 1) {
+    const state = await readIndexState({ settings, types, expectedCounts });
+    finalState = state;
+    const awaitingIndex = state.missingExpectedItems.length > 0;
+    const hasCountMismatch = state.mismatchedExpectedItems.length > 0;
+
+    if (
+      (!state.scanStillInProgress && !awaitingIndex && !hasCountMismatch) ||
+      attempt === INDEX_CHECK_ATTEMPTS - 1
+    ) {
+      break;
+    }
+    await delay(INDEX_CHECK_DELAY_MS);
+  }
+
+  return finalState;
+}
+
+function applyIndexState(result, state) {
+  result.indexedItems = state.indexedItems;
+  result.scanStillInProgress = state.scanStillInProgress;
+  for (const warning of state.warnings) {
+    if (!result.warnings.includes(warning)) result.warnings.push(warning);
+  }
+}
+
+async function requestDeletionLibraryScan({
+  settings,
+  types,
+  forceGlobal = false,
+  expectedCounts = {},
+}) {
   const result = {
     scanRequested: false,
     scanTargets: [],
@@ -184,13 +240,27 @@ async function requestDeletionLibraryScan({ settings, types, forceGlobal = false
     result.globalFallback = true;
   }
 
-  for (let attempt = 0; attempt < INDEX_CHECK_ATTEMPTS; attempt += 1) {
-    const state = await readIndexState({ settings, types });
-    result.indexedItems = state.indexedItems;
-    result.scanStillInProgress = state.scanStillInProgress;
-    result.warnings.push(...state.warnings);
-    if (!state.scanStillInProgress || attempt === INDEX_CHECK_ATTEMPTS - 1) break;
-    await delay(INDEX_CHECK_DELAY_MS);
+  let finalState = await waitForIndexState({ settings, types, expectedCounts });
+  applyIndexState(result, finalState);
+
+  if (finalState.mismatchedExpectedItems.length > 0 && !result.globalFallback) {
+    await refreshMediaServerLibrary(settings);
+    result.scanRequested = true;
+    result.globalFallback = true;
+    finalState = await waitForIndexState({ settings, types, expectedCounts });
+    applyIndexState(result, finalState);
+  }
+
+  for (const item of finalState?.missingExpectedItems || []) {
+    const warning = finalState.scanStillInProgress
+      ? `${item.name} scan is still in progress and no items have been indexed yet.`
+      : `${item.name} scan completed but no items were indexed. Confirm the media server can read the queue folder and .strm files.`;
+    if (!result.warnings.includes(warning)) result.warnings.push(warning);
+  }
+
+  for (const item of finalState?.mismatchedExpectedItems || []) {
+    const warning = `${item.name} reports ${item.count} item(s); ${item.expected} pending item(s) expected after scan.`;
+    if (!result.warnings.includes(warning)) result.warnings.push(warning);
   }
 
   return result;
@@ -285,6 +355,71 @@ function isInsideDirectory(candidatePath, baseDirectory) {
   const resolvedCandidate = path.resolve(candidatePath);
   const relative = path.relative(resolvedBase, resolvedCandidate);
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function libraryOwnershipPath(manifestDirectory) {
+  return path.join(manifestDirectory, LIBRARY_OWNERSHIP_FILE);
+}
+
+async function readLibraryOwnership(manifestDirectory) {
+  const ownership = await readJsonFile(libraryOwnershipPath(manifestDirectory));
+  return ownership && typeof ownership.libraries === "object"
+    ? ownership
+    : { version: 1, libraries: {} };
+}
+
+async function writeLibraryOwnership(manifestDirectory, ownership) {
+  await fs.mkdir(manifestDirectory, { recursive: true });
+  await fs.writeFile(
+    libraryOwnershipPath(manifestDirectory),
+    `${JSON.stringify(ownership, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function ownsDeletionLibrary({ ownership, settings, type, libraryName, queuePath }) {
+  const record = ownership?.libraries?.[type];
+  return record?.provider === mediaServerLabel(settings) &&
+    record?.name === libraryName &&
+    record?.queuePath === queuePath;
+}
+
+async function recordDeletionLibraryOwnership({
+  manifestDirectory,
+  settings,
+  type,
+  libraryName,
+  queuePath,
+  adopted = false,
+}) {
+  const ownership = await readLibraryOwnership(manifestDirectory);
+  ownership.libraries[type] = {
+    provider: mediaServerLabel(settings),
+    name: libraryName,
+    queuePath,
+    adopted,
+    recordedAt: new Date().toISOString(),
+  };
+  await writeLibraryOwnership(manifestDirectory, ownership);
+}
+
+async function removeDeletionLibraryOwnership({ manifestDirectory, type }) {
+  const ownership = await readLibraryOwnership(manifestDirectory);
+  if (!ownership.libraries?.[type]) return;
+  delete ownership.libraries[type];
+  await writeLibraryOwnership(manifestDirectory, ownership);
+}
+
+async function hasManagedQueueEntries({ settings, manifestDirectory, type }) {
+  const baseDirectory = queuePathFor(settings, type);
+  if (!baseDirectory) return false;
+  const manifest = await readManifest({ baseDirectory, manifestDirectory, type });
+  for (const entry of Object.values(manifest)) {
+    if (!entry?.path || !isInsideDirectory(entry.path, baseDirectory)) continue;
+    if (!(await isRealPathInsideDirectory(entry.path, baseDirectory))) continue;
+    if (await fs.lstat(entry.path).catch(() => null)) return true;
+  }
+  return false;
 }
 
 async function isRealPathInsideDirectory(candidatePath, baseDirectory) {
@@ -478,6 +613,13 @@ async function syncType({ type, items, settings, manifestDirectory }) {
   };
 
   if (!directoryState.ok) return summary;
+  if (!String(mediaServerDirectory || "").trim()) {
+    return {
+      ...summary,
+      writable: false,
+      message: "Leaving Soon queue root path is not configured.",
+    };
+  }
 
   const manifest = await readManifest({
     baseDirectory: directory,
@@ -513,7 +655,12 @@ async function syncType({ type, items, settings, manifestDirectory }) {
   return summary;
 }
 
-async function removeEmptyDeletionLibraries({ settings, countsByType, links }) {
+async function removeEmptyDeletionLibraries({
+  settings,
+  countsByType,
+  links,
+  manifestDirectory,
+}) {
   const result = {
     removed: [],
     skipped: [],
@@ -522,6 +669,7 @@ async function removeEmptyDeletionLibraries({ settings, countsByType, links }) {
   if (!canManageMediaServerLibraries(settings)) return result;
 
   const folders = await getMediaServerVirtualFolders(settings);
+  const ownership = await readLibraryOwnership(manifestDirectory);
 
   for (const type of ["Movie", "Series"]) {
     if (Number(countsByType[type] || 0) > 0) continue;
@@ -541,6 +689,21 @@ async function removeEmptyDeletionLibraries({ settings, countsByType, links }) {
       continue;
     }
 
+    if (!ownsDeletionLibrary({
+      ownership,
+      settings,
+      type,
+      libraryName,
+      queuePath: link.queuePath,
+    })) {
+      result.skipped.push({
+        type,
+        name: libraryName,
+        reason: "Library ownership was not confirmed by Scrubarr.",
+      });
+      continue;
+    }
+
     const queueState = await emptyQueueDirectoryState(link.queuePath);
     if (!queueState.empty) {
       result.skipped.push({
@@ -553,6 +716,7 @@ async function removeEmptyDeletionLibraries({ settings, countsByType, links }) {
     }
 
     await deleteMediaServerVirtualFolder(settings, { id: folderId, name: libraryName });
+    await removeDeletionLibraryOwnership({ manifestDirectory, type });
     result.removed.push({
       type,
       name: libraryName,
@@ -590,6 +754,7 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
       settings,
       countsByType: { Movie: 0, Series: 0 },
       links,
+      manifestDirectory,
     });
     const removedLinks = links.reduce(
       (total, link) => total + Number(link.linksRemoved || 0),
@@ -627,35 +792,69 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
   const seriesLink = links.find((item) => item.type === "Series");
   const libraries = [];
   if (movies.length > 0 && movieLink?.writable) {
-    libraries.push(
-      await ensureMediaServerVirtualFolder(settings, {
+    const library = await ensureMediaServerVirtualFolder(settings, {
         name: activeConfig.DeletionLibraries.Movies,
         collectionType: "movies",
         folderPath: activeConfig.ToBeDeletedPaths.Movies,
-      }),
-    );
+      });
+    libraries.push(library);
+    if (library.created || (library.existing && await hasManagedQueueEntries({
+      settings,
+      manifestDirectory,
+      type: "Movie",
+    }))) {
+      await recordDeletionLibraryOwnership({
+        manifestDirectory,
+        settings,
+        type: "Movie",
+        libraryName: activeConfig.DeletionLibraries.Movies,
+        queuePath: movieLink.queuePath,
+        adopted: library.existing === true,
+      });
+    }
   }
   if (series.length > 0 && seriesLink?.writable) {
-    libraries.push(
-      await ensureMediaServerVirtualFolder(settings, {
+    const library = await ensureMediaServerVirtualFolder(settings, {
         name: activeConfig.DeletionLibraries.Series,
         collectionType: "tvshows",
         folderPath: activeConfig.ToBeDeletedPaths.Series,
-      }),
-    );
+      });
+    libraries.push(library);
+    if (library.created || (library.existing && await hasManagedQueueEntries({
+      settings,
+      manifestDirectory,
+      type: "Series",
+    }))) {
+      await recordDeletionLibraryOwnership({
+        manifestDirectory,
+        settings,
+        type: "Series",
+        libraryName: activeConfig.DeletionLibraries.Series,
+        queuePath: seriesLink.queuePath,
+        adopted: library.existing === true,
+      });
+    }
   }
 
   const emptyLibraries = await removeEmptyDeletionLibraries({
     settings,
     countsByType: { Movie: movies.length, Series: series.length },
     links,
+    manifestDirectory,
   });
 
   const scanTypes = [
     movies.length > 0 && movieLink?.writable ? "Movie" : null,
     series.length > 0 && seriesLink?.writable ? "Series" : null,
   ].filter(Boolean);
-  const scan = await requestDeletionLibraryScan({ settings, types: scanTypes });
+  const scan = await requestDeletionLibraryScan({
+    settings,
+    types: scanTypes,
+    expectedCounts: {
+      Movie: movies.length,
+      Series: series.length,
+    },
+  });
 
   return {
     enabled: true,

@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   DEFAULT_UPDATE_KEY_ID,
+  SCRUBARR_DOCKER_IMAGE,
+  assertTrustedManifest,
   manifestSigningPayload,
 } from "../server/src/services/update-manifest-security.js";
 
@@ -27,8 +29,21 @@ const privateKeyPath = path.resolve(
 );
 const outputPath = path.resolve(argValue("--out", manifestPath));
 const keyId = argValue("--key-id", DEFAULT_UPDATE_KEY_ID);
+const imageDigest = argValue("--digest", "").trim();
 
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+if (imageDigest) {
+  const digest = imageDigest.startsWith("sha256:")
+    ? imageDigest
+    : `sha256:${imageDigest}`;
+  manifest.dockerImageDigest = `${SCRUBARR_DOCKER_IMAGE}@${digest}`;
+}
+if (!manifest.dockerImageDigest) {
+  throw new Error(
+    "Missing Docker image digest. Pass --digest sha256:<64-hex-digest> after the image has been published.",
+  );
+}
+assertTrustedManifest(manifest, { requireSignature: false });
 const privateKey = await fs.readFile(privateKeyPath, "utf8");
 
 const payload = manifestSigningPayload(manifest);
@@ -47,3 +62,4 @@ await fs.writeFile(outputPath, `${JSON.stringify(signedManifest, null, 2)}\n`, "
 
 console.log(`Signed manifest: ${outputPath}`);
 console.log(`Key ID: ${keyId}`);
+console.log(`Docker image digest: ${manifest.dockerImageDigest}`);

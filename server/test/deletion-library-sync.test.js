@@ -32,6 +32,27 @@ test("deletion library sync is a safe no-op when no items are pending", async ()
   assert.equal(result.message, "No pending items to sync.");
 });
 
+test("deletion library sync does not create queue files or libraries without a media-server queue root", async () => {
+  const config = settings();
+  config.Emby.CreateDeletionLibraries = true;
+
+  const result = await syncDeletionLibraries({
+    settings: config,
+    pending: [
+      {
+        ItemId: "movie-without-queue-root",
+        Title: "Queue Root Required",
+        Type: "Movie",
+      },
+    ],
+  });
+
+  assert.equal(result.enabled, true);
+  assert.equal(result.libraries.length, 0);
+  assert.equal(result.links[0].writable, false);
+  assert.equal(result.links[0].message, "Queue path is not configured.");
+});
+
 test("deletion library sync creates Emby libraries, queue links, and requests a targeted scan", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -135,6 +156,166 @@ test("deletion library sync creates Emby libraries, queue links, and requests a 
     assert.ok(calls.some((call) => call.method === "POST" && call.url.includes("/Library/VirtualFolders")));
     assert.ok(calls.some((call) => call.method === "POST" && call.pathname === "/Items/movie-library/Refresh"));
     assert.ok(!calls.some((call) => call.method === "POST" && call.pathname === "/Library/Refresh"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync warns when queued items are not indexed after scan", async () => {
+  const originalFetch = globalThis.fetch;
+  let virtualFolderQueryCount = 0;
+  let itemCountQueryCount = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = new URL(String(url));
+    if (String(url).includes("/Library/VirtualFolders/Query")) {
+      virtualFolderQueryCount += 1;
+      return Response.json({
+        Items: virtualFolderQueryCount === 1
+          ? []
+          : [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    if (requestUrl.pathname === "/Items") {
+      itemCountQueryCount += 1;
+      return Response.json({ TotalRecordCount: 0 });
+    }
+    if (String(url).endsWith("/Users")) {
+      return Response.json([{ Id: "user-1" }]);
+    }
+    if (String(url).includes("/Users/user-1/Items/movie-1")) {
+      return Response.json({
+        Id: "movie-1",
+        Path: "H:\\Movies\\Example Movie\\Example Movie.mkv",
+        MediaSources: [{ Path: "H:\\Movies\\Example Movie\\Example Movie.mkv" }],
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-libraries-index-"));
+  const manifestDirectory = path.join(directory, "manifest");
+
+  try {
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = path.join(directory, "movies");
+    config.Emby.ToBeDeletedPaths.Series = path.join(directory, "series");
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [
+        {
+          ItemId: "movie-1",
+          Title: "Example Movie",
+          Type: "Movie",
+          Year: 2020,
+          Path: "H:\\Movies\\Example Movie",
+        },
+      ],
+      manifestDirectory,
+    });
+
+    assert.equal(result.links[0].linksCreated, 1);
+    assert.deepEqual(result.indexedItems, [
+      {
+        type: "Movie",
+        name: "Movies Leaving Soon",
+        id: "movie-library",
+        count: 0,
+        refreshProgress: null,
+      },
+    ]);
+    assert.ok(
+      result.scanWarnings.some((warning) =>
+        warning.includes("scan completed but no items were indexed"),
+      ),
+    );
+    assert.equal(result.globalScanFallback, true);
+    assert.equal(itemCountQueryCount, 6);
+    assert.equal(
+      result.scanWarnings.filter((warning) =>
+        warning.includes("scan completed but no items were indexed"),
+      ).length,
+      1,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync requests a global refresh when targeted scanning leaves stale indexed items", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = new URL(String(url));
+    calls.push({
+      method: options.method || "GET",
+      pathname: requestUrl.pathname,
+      includeItemTypes: requestUrl.searchParams.get("IncludeItemTypes"),
+    });
+    if (String(url).includes("/Library/VirtualFolders/Query")) {
+      return Response.json({
+        Items: [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    if (requestUrl.pathname === "/Items") {
+      return Response.json({ TotalRecordCount: 2 });
+    }
+    if (String(url).endsWith("/Users")) {
+      return Response.json([{ Id: "user-1" }]);
+    }
+    if (String(url).includes("/Users/user-1/Items/movie-1")) {
+      return Response.json({
+        Id: "movie-1",
+        Path: "H:\\Movies\\Example Movie\\Example Movie.mkv",
+        MediaSources: [{ Path: "H:\\Movies\\Example Movie\\Example Movie.mkv" }],
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-libraries-stale-index-"));
+  const manifestDirectory = path.join(directory, "manifest");
+
+  try {
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = path.join(directory, "movies");
+    config.Emby.ToBeDeletedPaths.Series = path.join(directory, "series");
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [
+        {
+          ItemId: "movie-1",
+          Title: "Example Movie",
+          Type: "Movie",
+          Year: 2020,
+          Path: "H:\\Movies\\Example Movie",
+        },
+      ],
+      manifestDirectory,
+    });
+
+    assert.equal(result.globalScanFallback, true);
+    assert.ok(calls.some((call) =>
+      call.method === "POST" && call.pathname === "/Items/movie-library/Refresh",
+    ));
+    assert.ok(calls.some((call) =>
+      call.method === "POST" && call.pathname === "/Library/Refresh",
+    ));
+    assert.ok(calls.some((call) =>
+      call.pathname === "/Items" && call.includeItemTypes === "Movie",
+    ));
+    assert.ok(result.scanWarnings.some((warning) =>
+      warning.includes("reports 2 item(s); 1 pending item(s) expected after scan"),
+    ));
   } finally {
     globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });
@@ -404,6 +585,17 @@ test("deletion library sync removes empty Jellyfin libraries by name", async () 
       `${JSON.stringify({ "movie-1": { path: movieLink, mode: "strm" } }, null, 2)}\n`,
       "utf8",
     );
+    await fs.writeFile(
+      path.join(manifestDirectory, "deletion-library-ownership.json"),
+      `${JSON.stringify({
+        version: 1,
+        libraries: {
+          Movie: { provider: "Jellyfin", name: "Movies Leaving Soon", queuePath: movieDirectory },
+          Series: { provider: "Jellyfin", name: "Shows Leaving Soon", queuePath: seriesDirectory },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
 
     const config = settings();
     config.MediaServer.Provider = "jellyfin";
@@ -413,6 +605,8 @@ test("deletion library sync removes empty Jellyfin libraries by name", async () 
     config.Jellyfin.CreateDeletionLibraries = true;
     config.Jellyfin.QueueWritePaths.Movies = movieDirectory;
     config.Jellyfin.QueueWritePaths.Series = seriesDirectory;
+    config.Jellyfin.ToBeDeletedPaths.Movies = movieDirectory;
+    config.Jellyfin.ToBeDeletedPaths.Series = seriesDirectory;
 
     const result = await syncDeletionLibraries({
       settings: config,
@@ -485,6 +679,17 @@ test("deletion library sync prunes managed links when pending becomes empty", as
     await fs.writeFile(
       path.join(manifestDirectory, "deletion-library-series.json"),
       `${JSON.stringify({ "series-1": { path: seriesLink, mode: "strm-series" } }, null, 2)}\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(manifestDirectory, "deletion-library-ownership.json"),
+      `${JSON.stringify({
+        version: 1,
+        libraries: {
+          Movie: { provider: "Emby", name: "Movies Leaving Soon", queuePath: movieDirectory },
+          Series: { provider: "Emby", name: "Shows Leaving Soon", queuePath: seriesDirectory },
+        },
+      }, null, 2)}\n`,
       "utf8",
     );
 
@@ -565,6 +770,105 @@ test("deletion library sync refuses manifest paths outside the queue path", asyn
     assert.match(result.links[0].skipped[0].reason, /outside the queue path/);
     assert.equal(await fs.readFile(outsideFile, "utf8"), "outside");
   } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync preserves an unowned name-matched library", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method || "GET" });
+    if (String(url).includes("/Library/VirtualFolders/Query")) {
+      return Response.json({
+        Items: [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-unowned-library-"));
+  const movieDirectory = path.join(directory, "movies");
+  const seriesDirectory = path.join(directory, "series");
+
+  try {
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = movieDirectory;
+    config.Emby.ToBeDeletedPaths.Series = seriesDirectory;
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [],
+      manifestDirectory: path.join(directory, "manifest"),
+    });
+
+    assert.deepEqual(result.librariesRemoved, []);
+    assert.equal(result.libraryRemovalSkipped[0].reason, "Library ownership was not confirmed by Scrubarr.");
+    assert.equal(calls.some((call) => call.url.includes("/Library/VirtualFolders/Delete")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync adopts an existing library only after managed links are confirmed", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = new URL(String(url));
+    if (requestUrl.pathname === "/Library/VirtualFolders/Query") {
+      return Response.json({
+        Items: [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    if (requestUrl.pathname === "/Users") return Response.json([{ Id: "user-1" }]);
+    if (requestUrl.pathname === "/Users/user-1/Items/movie-1") {
+      return Response.json({
+        Id: "movie-1",
+        Path: "H:\\Movies\\Existing Movie\\Existing Movie.mkv",
+      });
+    }
+    if (requestUrl.pathname === "/Items") {
+      return Response.json({ TotalRecordCount: 1 });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-library-adopt-"));
+  const movieDirectory = path.join(directory, "movies");
+  const seriesDirectory = path.join(directory, "series");
+  const manifestDirectory = path.join(directory, "manifest");
+
+  try {
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = movieDirectory;
+    config.Emby.ToBeDeletedPaths.Series = seriesDirectory;
+
+    await syncDeletionLibraries({
+      settings: config,
+      pending: [
+        {
+          ItemId: "movie-1",
+          Title: "Existing Movie",
+          Type: "Movie",
+          Year: 2020,
+        },
+      ],
+      manifestDirectory,
+    });
+
+    const ownership = JSON.parse(
+      await fs.readFile(path.join(manifestDirectory, "deletion-library-ownership.json"), "utf8"),
+    );
+    assert.equal(ownership.libraries.Movie.name, "Movies Leaving Soon");
+    assert.equal(ownership.libraries.Movie.adopted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });
   }
 });

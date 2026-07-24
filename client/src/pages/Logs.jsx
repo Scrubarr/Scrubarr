@@ -150,6 +150,12 @@ function SummaryRow({ label, summary }) {
   if ("expired" in summary) details.push(`${summary.expired} expired`);
   if ("deleted" in summary) details.push(`${summary.deleted} deleted`);
   if ("failed" in summary) details.push(`${summary.failed} failed`);
+  if ("deferred" in summary && summary.deferred > 0) {
+    details.push(`${summary.deferred} deferred`);
+  }
+  if (Array.isArray(summary.scanWarnings) && summary.scanWarnings.length > 0) {
+    details.push(`${summary.scanWarnings.length} warning${summary.scanWarnings.length === 1 ? "" : "s"}`);
+  }
 
   return (
     <div className="rounded-lg border border-line bg-canvas/60 p-3 text-sm">

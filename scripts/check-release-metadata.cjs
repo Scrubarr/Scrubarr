@@ -60,4 +60,15 @@ if (manifest.dockerImage !== `${imageName}:${expectedTag}`) {
   );
 }
 
+if (
+  manifest.dockerImageDigest !== undefined &&
+  !new RegExp(`^${imageName.replaceAll("/", "\\/")}@sha256:[a-f0-9]{64}$`).test(
+    manifest.dockerImageDigest,
+  )
+) {
+  fail(
+    "release-manifest.example.json dockerImageDigest must use the official image and a sha256 digest",
+  );
+}
+
 console.log(`Release metadata is aligned for Scrubarr ${expectedTag}.`);

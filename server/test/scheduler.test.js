@@ -201,7 +201,7 @@ test("scheduler summaries remain read-only when using an old scan coordinator", 
   assert.equal(run.queued, 0);
 });
 
-test("scheduled runs remain successful when library sync fails", async () => {
+test("scheduled runs are partial when library sync fails", async () => {
   const store = new MemoryStore();
   const scanCoordinator = {
     isBusy: () => false,
@@ -233,7 +233,7 @@ test("scheduled runs remain successful when library sync fails", async () => {
   const run = await scheduler.runNow();
   scheduler.stop();
 
-  assert.equal(run.status, "success");
+  assert.equal(run.status, "partial");
   assert.equal(run.librarySync.status, "failed");
   assert.equal(run.librarySync.message, "Emby refresh failed");
 });

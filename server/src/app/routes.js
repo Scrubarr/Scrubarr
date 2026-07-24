@@ -98,6 +98,7 @@ export function mountApiRoutes(app, context) {
       librarySyncManifestDirectory: runtime.librarySyncManifestDirectory,
       timezone: runtime.timezone,
       pendingMutations,
+      onSchedulerRestored: () => scheduler.start(),
     }),
   );
   app.use(
@@ -130,6 +131,7 @@ export function mountApiRoutes(app, context) {
         workflows.untagPendingItems(items, { source: "exclusions" }),
       onPendingChanged: () =>
         workflows.syncCurrentDeletionLibraries({ source: "exclusions" }),
+      pendingMutations,
     }),
   );
   app.use(

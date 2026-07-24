@@ -12,6 +12,13 @@ import {
   markExcluded,
   normalizeExclusion,
 } from "../services/exclusions.js";
+import {
+  exclusionIntegrityReport,
+  exclusionItemKey,
+} from "../services/exclusion-integrity.js";
+import { PendingMutationCoordinator } from "../services/pending-mutation-coordinator.js";
+
+const INTEGRITY_CACHE_TTL_MS = 60 * 1000;
 
 async function loadSettings(settingsStore, defaults) {
   return mergeSettings(defaults, await settingsStore.read());
@@ -81,18 +88,126 @@ export function createExclusionsRouter({
   defaults,
   onPendingRemoved,
   onPendingChanged,
+  pendingMutations = new PendingMutationCoordinator(),
+  integrityReport = exclusionIntegrityReport,
 }) {
   const router = Router();
+  let integrityCache = null;
+  let integrityInFlight = null;
+
+  function integrityFingerprint(settings, exclusions) {
+    const config = settings?.MediaServer?.Provider === "jellyfin"
+      ? settings.Jellyfin
+      : settings?.Emby;
+    return JSON.stringify({
+      exclusions,
+      provider: settings?.MediaServer?.Provider,
+      media: {
+        url: config?.ServerUrl,
+        apiKey: config?.ApiKey,
+      },
+      fallback: settings?.CleanupRules?.FallbackFileDeletion,
+      allowedRoots: settings?.CleanupRules?.DirectFileDeletionAllowedRoots,
+      radarr: settings?.Arrs?.Radarr,
+      sonarr: settings?.Arrs?.Sonarr,
+    });
+  }
+
+  function invalidateIntegrityCache() {
+    integrityCache = null;
+  }
+
+  async function getIntegrityReport({ settings, exclusions, force = false }) {
+    const fingerprint = integrityFingerprint(settings, exclusions);
+    const now = Date.now();
+    if (
+      !force &&
+      integrityCache?.fingerprint === fingerprint &&
+      integrityCache.expiresAt > now
+    ) {
+      return integrityCache.report;
+    }
+    if (integrityInFlight?.fingerprint === fingerprint) {
+      return integrityInFlight.promise;
+    }
+
+    const promise = Promise.resolve().then(() =>
+      integrityReport({ exclusions, settings }),
+    ).then((report) => {
+      integrityCache = {
+        fingerprint,
+        expiresAt: Date.now() + INTEGRITY_CACHE_TTL_MS,
+        report,
+      };
+      return report;
+    }).finally(() => {
+      if (integrityInFlight?.fingerprint === fingerprint) {
+        integrityInFlight = null;
+      }
+    });
+    integrityInFlight = { fingerprint, promise };
+    return promise;
+  }
 
   router.get("/", async (_request, response, next) => {
     try {
       const settings = await loadSettings(settingsStore, defaults);
       const exclusions = await exclusionsStore.read();
       const enriched = await enrichExclusionsWithMediaServerDetails(exclusions, settings);
-      if (JSON.stringify(enriched) !== JSON.stringify(asList(exclusions))) {
-        await exclusionsStore.write(enriched);
-      }
       response.json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/integrity", async (_request, response, next) => {
+    try {
+      const settings = await loadSettings(settingsStore, defaults);
+      const exclusions = asList(await exclusionsStore.read());
+      response.json(await getIntegrityReport({ settings, exclusions }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/stale", async (_request, response, next) => {
+    try {
+      const result = await pendingMutations.run(
+        "exclusion-remove-confirmed-stale",
+        async () => {
+          const settings = await loadSettings(settingsStore, defaults);
+          const current = asList(await exclusionsStore.read());
+          const report = await getIntegrityReport({
+            exclusions: current,
+            settings,
+            force: true,
+          });
+          const staleKeys = new Set(report.items.map((item) => item.key));
+          const staleSnapshots = new Map(
+            current
+              .filter((item) => staleKeys.has(exclusionItemKey(item)))
+              .map((item) => [exclusionItemKey(item), JSON.stringify(item)]),
+          );
+          const latest = asList(await exclusionsStore.read());
+          const isStillStale = (item) =>
+            staleSnapshots.get(exclusionItemKey(item)) === JSON.stringify(item);
+          const remaining = latest.filter((item) => !isStillStale(item));
+          const removed = latest.filter((item) => isStillStale(item));
+
+          if (remaining.length !== latest.length) {
+            await exclusionsStore.write(remaining);
+            invalidateIntegrityCache();
+          }
+          return { removed, report };
+        },
+      );
+
+      response.json({
+        ok: true,
+        removedCount: result.removed.length,
+        removed: result.removed,
+        report: result.report,
+      });
     } catch (error) {
       next(error);
     }
@@ -161,41 +276,48 @@ export function createExclusionsRouter({
 
   router.post("/", async (request, response, next) => {
     try {
-      const exclusion = normalizeExclusion(request.body);
-      const current = asList(await exclusionsStore.read());
-      const existing = current.find((item) => isSameExclusion(item, exclusion));
+      const body = await pendingMutations.run("exclusion-add", async () => {
+        const exclusion = normalizeExclusion(request.body);
+        const current = asList(await exclusionsStore.read());
+        const existing = current.find((item) => isSameExclusion(item, exclusion));
 
-      if (!existing) {
-        await exclusionsStore.write([...current, exclusion]);
-      }
-
-      const pending = asList(await pendingStore.read());
-      const remaining = pending.filter(
-        (item) => !isSameExclusion(item, exclusion),
-      );
-      if (remaining.length !== pending.length) {
-        const removed = pending.filter((item) => isSameExclusion(item, exclusion));
-        await pendingStore.write(remaining);
-        await onPendingRemoved?.(removed);
-      }
-      let librarySync = null;
-      if (remaining.length !== pending.length) {
-        try {
-          librarySync = await onPendingChanged?.();
-        } catch (error) {
-          librarySync = {
-            status: "failed",
-            message: error.message || "Library sync failed",
-          };
+        if (!existing) {
+          await exclusionsStore.write([...current, exclusion]);
+          invalidateIntegrityCache();
         }
-      }
 
-      response.status(existing ? 200 : 201).json({
+        const pending = asList(await pendingStore.read());
+        const remaining = pending.filter(
+          (item) => !isSameExclusion(item, exclusion),
+        );
+        if (remaining.length !== pending.length) {
+          const removed = pending.filter((item) => isSameExclusion(item, exclusion));
+          await pendingStore.write(remaining);
+          await onPendingRemoved?.(removed);
+        }
+        let librarySync = null;
+        if (remaining.length !== pending.length) {
+          try {
+            librarySync = await onPendingChanged?.();
+          } catch (error) {
+            librarySync = {
+              status: "failed",
+              message: error.message || "Library sync failed",
+            };
+          }
+        }
+
+        return {
+          added: !existing,
+          exclusion: existing || exclusion,
+          removedFromPending: pending.length - remaining.length,
+          librarySync,
+        };
+      });
+
+      response.status(body.added ? 201 : 200).json({
         ok: true,
-        added: !existing,
-        exclusion: existing || exclusion,
-        removedFromPending: pending.length - remaining.length,
-        librarySync,
+        ...body,
       });
     } catch (error) {
       if (error.message?.includes("required")) {
@@ -211,16 +333,21 @@ export function createExclusionsRouter({
 
   router.delete("/:itemId", async (request, response, next) => {
     try {
-      const itemId = String(request.params.itemId);
-      const current = asList(await exclusionsStore.read());
-      const remaining = current.filter(
-        (item) => String(item.ItemId) !== itemId,
-      );
-      if (remaining.length === current.length) {
+      const result = await pendingMutations.run("exclusion-remove", async () => {
+        const itemId = String(request.params.itemId);
+        const current = asList(await exclusionsStore.read());
+        const remaining = current.filter(
+          (item) => String(item.ItemId) !== itemId,
+        );
+        if (remaining.length === current.length) return { found: false };
+        await exclusionsStore.write(remaining);
+        invalidateIntegrityCache();
+        return { found: true };
+      });
+      if (!result.found) {
         response.status(404).json({ error: "exclusion_not_found" });
         return;
       }
-      await exclusionsStore.write(remaining);
       response.json({ ok: true });
     } catch (error) {
       next(error);

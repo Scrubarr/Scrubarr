@@ -19,6 +19,8 @@ import MediaPoster from "../components/MediaPoster.jsx";
 import QualificationPopover from "../components/QualificationPopover.jsx";
 import StatePanel from "../components/StatePanel.jsx";
 import MediaTypeBadge, { MediaIcon } from "../components/MediaTypeBadge.jsx";
+import { SelectInput } from "../components/FormControls.jsx";
+import { useCloseDetailsOnOutsideClick } from "../hooks/useCloseDetailsOnOutsideClick.js";
 import { requestJson } from "../lib/api.js";
 import { mediaServerFromStatus } from "../lib/mediaServerState.js";
 
@@ -404,6 +406,7 @@ function isDeletionEntry(entry) {
 }
 
 function DeletedMediaList({ entry }) {
+  const detailsRef = useCloseDetailsOnOutsideClick();
   const items = deletedItems(entry);
   if (!entry) {
     return (
@@ -421,11 +424,15 @@ function DeletedMediaList({ entry }) {
     );
   }
   return (
-    <details className="mt-4 rounded-xl border border-line bg-canvas/60 p-4">
-      <summary className="cursor-pointer text-sm font-medium text-neutral-200">
-        View media removed during last deletion
+    <details ref={detailsRef} className="group relative mt-4">
+      <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-line bg-canvas/60 px-3 py-2 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 group-open:border-accent">
+        <span>View media removed during last deletion</span>
+        <span className="shrink-0 text-xs text-neutral-400">
+          {items.length} {items.length === 1 ? "item" : "items"}
+        </span>
       </summary>
-      <div className="mt-3 grid gap-2 text-sm">
+      <div className="absolute z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-line bg-neutral-950 p-3 shadow-2xl">
+        <div className="grid gap-2 text-sm">
         {items.map((item) => (
           <div
             key={item.ItemId || item.itemId || `${item.Type || item.type}-${item.Title || item.title}`}
@@ -445,6 +452,7 @@ function DeletedMediaList({ entry }) {
             </div>
           </div>
         ))}
+        </div>
       </div>
     </details>
   );
@@ -541,15 +549,17 @@ function PendingCountdownPanel({ summary, scheduler }) {
   const mode = summary?.mode || "live";
   const preview = mode === "preview";
   const scheduled = scheduler?.enabled === true;
+  const visible = !preview && scheduled;
   const tone = countdownPanelTone(nextEligible?.daysRemaining, mode);
   const hasPending = pendingTotal > 0 && Boolean(nextEligible);
 
   useEffect(() => {
+    if (!visible) return undefined;
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [visible]);
 
-  if (preview || !scheduled) return null;
+  if (!visible) return null;
 
   let detail = "Scrubarr will show the next deletion window once items are pending.";
 
@@ -615,6 +625,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState(null);
   const [pendingSummary, setPendingSummary] = useState(null);
   const [pendingIntegrity, setPendingIntegrity] = useState(null);
+  const [exclusionIntegrity, setExclusionIntegrity] = useState(null);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardStatsError, setDashboardStatsError] = useState("");
   const [runLog, setRunLog] = useState([]);
@@ -625,6 +636,8 @@ export default function Dashboard() {
   });
   const [pendingBusy, setPendingBusy] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [pendingTypeFilter, setPendingTypeFilter] = useState("all");
+  const [pendingSort, setPendingSort] = useState("due");
 
   async function loadDashboardData() {
     try {
@@ -660,9 +673,14 @@ export default function Dashboard() {
       }
       setError("");
       setPendingIntegrity(null);
+      setExclusionIntegrity(null);
       requestJson("/api/pending/integrity").then(
         setPendingIntegrity,
         () => setPendingIntegrity(null),
+      );
+      requestJson("/api/exclusions/integrity").then(
+        setExclusionIntegrity,
+        () => setExclusionIntegrity(null),
       );
     } catch (requestError) {
       setError(requestError.message);
@@ -711,6 +729,38 @@ export default function Dashboard() {
     const entries = Array.isArray(pendingSummary?.items) ? pendingSummary.items : [];
     return new Map(entries.map((item) => [String(item.ItemId), item]));
   }, [pendingSummary]);
+  const displayedPending = useMemo(() => {
+    const compareTitles = (left, right) =>
+      String(left?.Title || "").localeCompare(String(right?.Title || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    const compareMarkedDate = (left, right) =>
+      String(left?.MarkedDate || "").localeCompare(String(right?.MarkedDate || ""));
+    const compareDeletionDate = (left, right) => {
+      const leftSummary = countdownById.get(String(left?.ItemId));
+      const rightSummary = countdownById.get(String(right?.ItemId));
+      return String(leftSummary?.DeletionDate || "9999-12-31").localeCompare(
+        String(rightSummary?.DeletionDate || "9999-12-31"),
+      );
+    };
+
+    return pending
+      .filter((item) => pendingTypeFilter === "all" || item.Type === pendingTypeFilter)
+      .slice()
+      .sort((left, right) => {
+        if (pendingSort === "marked-newest") {
+          return compareMarkedDate(right, left) || compareTitles(left, right);
+        }
+        if (pendingSort === "marked-oldest") {
+          return compareMarkedDate(left, right) || compareTitles(left, right);
+        }
+        if (pendingSort === "title") {
+          return compareTitles(left, right);
+        }
+        return compareDeletionDate(left, right) || compareTitles(left, right);
+      });
+  }, [countdownById, pending, pendingSort, pendingTypeFilter]);
   const mediaServer = mediaServerFromStatus(status);
   const mediaServerLocked = mediaServer.selected;
   const mediaServerConfigured = mediaServer.configured;
@@ -720,6 +770,9 @@ export default function Dashboard() {
   const mediaServerSetupMessage = mediaServerLocked
     ? `Finish ${mediaServerLabel} setup. Add the ${mediaServerLabel} server URL, API information, libraries, and users before Scrubarr can scan or manage media.`
     : "Set up a media server first. Choose Emby or Jellyfin in Settings before Scrubarr can scan or manage media.";
+  const exclusionsNeedingReview =
+    Number(exclusionIntegrity?.staleCount || 0) +
+    Number(exclusionIntegrity?.reviewCount || 0);
 
   async function removePending(item, exclude = false) {
     setPendingConfirm(null);
@@ -781,6 +834,7 @@ export default function Dashboard() {
       {(showMediaServerSetup ||
         status?.updates?.updateAvailable ||
         pendingIntegrity?.staleCount > 0 ||
+        exclusionsNeedingReview > 0 ||
         status?.capabilities?.debugLogging) && (
         <div className="space-y-3">
           {showMediaServerSetup && (
@@ -823,6 +877,26 @@ export default function Dashboard() {
               </div>
               <a
                 href="/safety#pending-integrity"
+                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
+              >
+                Review on Safety
+              </a>
+            </div>
+          )}
+          {exclusionsNeedingReview > 0 && (
+            <div className="flex flex-col gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <CircleAlert className="mt-0.5 shrink-0" size={18} />
+                <span>
+                  {exclusionsNeedingReview}{" "}
+                  {exclusionsNeedingReview === 1
+                    ? "exclusion needs"
+                    : "exclusions need"}{" "}
+                  review.
+                </span>
+              </div>
+              <a
+                href="/safety#exclusion-integrity"
                 className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
               >
                 Review on Safety
@@ -1012,7 +1086,7 @@ export default function Dashboard() {
       </section>
 
       <section>
-        <div className="mb-4">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <ClipboardList className="text-accent" size={21} />
@@ -1022,15 +1096,38 @@ export default function Dashboard() {
               Remove items or protect them with an exclusion
             </p>
           </div>
+          {pending.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-3">
+              <label className="min-w-0 text-xs font-medium text-neutral-400 sm:w-36">
+                Filter
+                <SelectInput value={pendingTypeFilter} onChange={setPendingTypeFilter}>
+                  <option value="all">All media</option>
+                  <option value="Movie">Movies</option>
+                  <option value="Series">Series</option>
+                </SelectInput>
+              </label>
+              <label className="min-w-0 text-xs font-medium text-neutral-400 sm:w-52">
+                Sort by
+                <SelectInput value={pendingSort} onChange={setPendingSort}>
+                  <option value="due">Due soonest</option>
+                  <option value="marked-newest">Marked newest</option>
+                  <option value="marked-oldest">Marked oldest</option>
+                  <option value="title">Title A-Z</option>
+                </SelectInput>
+              </label>
+            </div>
+          )}
         </div>
 
         {pending.length === 0 ? (
           <StatePanel>
             Nothing is currently waiting for deletion.
           </StatePanel>
+        ) : displayedPending.length === 0 ? (
+          <StatePanel>No pending {pendingTypeFilter === "Movie" ? "movies" : "series"} match this filter.</StatePanel>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {pending.map((item) => (
+            {displayedPending.map((item) => (
               <PendingDeletionCard
                 key={item.ItemId || `${item.Type}-${item.Title}`}
                 item={item}

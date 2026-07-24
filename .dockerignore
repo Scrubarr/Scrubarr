@@ -5,6 +5,17 @@ logs
 .env
 .git
 .gitignore
+.agents
+.codex
+Scrubarr-private-notes
+local-backups
+deployment-backups
+local-update-signing
+dev-jellyfin-test
+dev-jellyfin-e2e
+*.private.pem
+*private-key*.pem
+*private*.pem
 npm-debug.log*
 Dockerfile
 docker-compose*.yml

@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { maskSettings, mergeSettings } from "../config/settings.js";
 import { DATA_SCHEMA_VERSION } from "./data-migrations.js";
+import {
+  ensurePrivateDirectory,
+  PRIVATE_FILE_MODE,
+  protectPrivateFile,
+} from "../storage/private-paths.js";
 
 export const BACKUP_FORMAT = "scrubarr-backup";
 export const BACKUP_VERSION = 1;
@@ -38,10 +43,14 @@ export async function createBackup({ stores, defaults, includeSecrets, now = new
 
 export async function writeBackupFile({ backup, directory, now = new Date(), label = "" }) {
   const resolvedDirectory = path.resolve(directory);
-  await fs.mkdir(resolvedDirectory, { recursive: true });
+  await ensurePrivateDirectory(resolvedDirectory);
   const fileName = backupFileName(now, label);
   const filePath = path.join(resolvedDirectory, fileName);
-  await fs.writeFile(filePath, `${JSON.stringify(backup, null, 2)}\n`, "utf8");
+  await fs.writeFile(filePath, `${JSON.stringify(backup, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: PRIVATE_FILE_MODE,
+  });
+  await protectPrivateFile(filePath);
   return {
     fileName,
     filePath,

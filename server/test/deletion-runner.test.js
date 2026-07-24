@@ -30,6 +30,16 @@ function settings({
   };
 }
 
+function unavailableArrError() {
+  const error = new Error("Arr deletion service is not enabled or configured");
+  error.code = "arr_delete_unavailable";
+  return error;
+}
+
+function approvedRevalidation(items) {
+  return { allowedItems: items, deferredItems: [] };
+}
+
 test("finds pending items that have reached the deletion date", () => {
   const due = expiredPendingItems({
     settings: settings(),
@@ -77,14 +87,16 @@ test("dry-run deletion check reports expired items without deleting", async () =
 
 test("live deletion marks successful expired items and reports totals", async () => {
   const sent = [];
+  const pending = [
+    { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-31" },
+    { ItemId: "series-1", Title: "New Series", Type: "Series", MarkedDate: "2026-06-19" },
+  ];
   const result = await runDeletionCheck({
     settings: settings({ dryRun: false, telegram: true }),
     timezone: "Pacific/Auckland",
     now: new Date("2026-06-20T04:00:00.000Z"),
-    pending: [
-      { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-31" },
-      { ItemId: "series-1", Title: "New Series", Type: "Series", MarkedDate: "2026-06-19" },
-    ],
+    pending,
+    revalidation: approvedRevalidation([pending[0]]),
     deleteItem: async (_settings, item) => ({
       method: item.Type === "Movie" ? "radarr" : "sonarr",
       message: "Deleted by fake Arr",
@@ -107,15 +119,38 @@ test("live deletion marks successful expired items and reports totals", async ()
   assert.match(sent[0], /Deletion Report/);
 });
 
-test("live deletion keeps failed items pending and sends failure report", async () => {
-  const sent = [];
+test("live deletion defers items when final revalidation is missing", async () => {
+  let deleteCalled = false;
   const result = await runDeletionCheck({
-    settings: settings({ dryRun: false, telegram: true }),
+    settings: settings({ dryRun: false, telegram: false }),
     timezone: "UTC",
     now: new Date("2026-06-20T04:00:00.000Z"),
     pending: [
       { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
     ],
+    deleteItem: async () => {
+      deleteCalled = true;
+      return { method: "radarr", message: "Should not run" };
+    },
+  });
+
+  assert.equal(deleteCalled, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.deferredTotal, 1);
+  assert.equal(result.deferredItems[0].SkipCode, "revalidation-required");
+});
+
+test("live deletion keeps failed items pending and sends failure report", async () => {
+  const sent = [];
+  const pending = [
+    { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: true }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: approvedRevalidation(pending),
     deleteItem: async () => {
       throw new Error("Radarr refused deletion");
     },
@@ -136,13 +171,15 @@ test("live deletion keeps failed items pending and sends failure report", async 
 
 test("live deletion blocks items with active playback", async () => {
   let deleteCalled = false;
+  const pending = [
+    { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
+  ];
   const result = await runDeletionCheck({
     settings: settings({ dryRun: false, telegram: false }),
     timezone: "UTC",
     now: new Date("2026-06-20T04:00:00.000Z"),
-    pending: [
-      { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
-    ],
+    pending,
+    revalidation: approvedRevalidation(pending),
     activeStreamChecker: async () => ({
       title: "Old Movie",
       userName: "Test User",
@@ -156,28 +193,90 @@ test("live deletion blocks items with active playback", async () => {
   });
 
   assert.equal(deleteCalled, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.deletedTotal, 0);
+  assert.equal(result.failedTotal, 0);
+  assert.equal(result.deferredTotal, 1);
+  assert.match(result.deferredItems[0].SkipMessage, /Deletion deferred because media is in use/);
+});
+
+test("live deletion blocks paused playback sessions", async () => {
+  let deleteCalled = false;
+  const pending = [
+    { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: false }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: approvedRevalidation(pending),
+    activeStreamChecker: async () => ({
+      title: "Old Movie",
+      userName: "Test User",
+      client: "Browser",
+      deviceName: "Laptop",
+      paused: true,
+    }),
+    deleteItem: async () => {
+      deleteCalled = true;
+      return { method: "radarr", message: "Deleted by fake Arr" };
+    },
+  });
+
+  assert.equal(deleteCalled, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.deletedTotal, 0);
+  assert.equal(result.failedTotal, 0);
+  assert.equal(result.deferredTotal, 1);
+  assert.match(result.deferredItems[0].SkipMessage, /Deletion deferred because media is in use/);
+});
+
+test("live deletion fails closed when active playback check fails", async () => {
+  let deleteCalled = false;
+  const pending = [
+    { ItemId: "movie-1", Title: "Old Movie", Type: "Movie", MarkedDate: "2026-05-01" },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: false }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: approvedRevalidation(pending),
+    activeStreamChecker: async () => {
+      throw new Error("Unable to load active playback sessions");
+    },
+    deleteItem: async () => {
+      deleteCalled = true;
+      return { method: "radarr", message: "Deleted by fake Arr" };
+    },
+  });
+
+  assert.equal(deleteCalled, false);
   assert.equal(result.status, "failed");
   assert.equal(result.deletedTotal, 0);
   assert.equal(result.failedTotal, 1);
-  assert.match(result.failedItems[0].DeleteError, /Active stream detected/);
+  assert.match(result.failedItems[0].DeleteError, /Unable to load active playback sessions/);
 });
 
 test("live deletion direct filesystem fallback requires approved roots", async () => {
+  const pending = [
+    {
+      ItemId: "movie-1",
+      Title: "Old Movie",
+      Type: "Movie",
+      MarkedDate: "2026-05-01",
+      Path: path.join(os.tmpdir(), "scrubarr-missing-approved-root"),
+    },
+  ];
   const result = await runDeletionCheck({
     settings: settings({ dryRun: false, fallback: true, telegram: false }),
     timezone: "UTC",
     now: new Date("2026-06-20T04:00:00.000Z"),
-    pending: [
-      {
-        ItemId: "movie-1",
-        Title: "Old Movie",
-        Type: "Movie",
-        MarkedDate: "2026-05-01",
-        Path: path.join(os.tmpdir(), "scrubarr-missing-approved-root"),
-      },
-    ],
+    pending,
+    revalidation: approvedRevalidation(pending),
     deleteItem: async () => {
-      throw new Error("Radarr unavailable");
+      throw unavailableArrError();
     },
   });
 
@@ -196,6 +295,16 @@ test("live deletion can use guarded direct filesystem fallback", async () => {
     await fs.mkdir(target, { recursive: true });
     await fs.writeFile(path.join(target, "movie.mkv"), "media", "utf8");
 
+    const pending = [
+      {
+        ItemId: "movie-1",
+        Title: "Old Movie",
+        Type: "Movie",
+        MarkedDate: "2026-05-01",
+        Path: target,
+      },
+    ];
+
     const result = await runDeletionCheck({
       settings: settings({
         dryRun: false,
@@ -205,17 +314,10 @@ test("live deletion can use guarded direct filesystem fallback", async () => {
       }),
       timezone: "UTC",
       now: new Date("2026-06-20T04:00:00.000Z"),
-      pending: [
-        {
-          ItemId: "movie-1",
-          Title: "Old Movie",
-          Type: "Movie",
-          MarkedDate: "2026-05-01",
-          Path: target,
-        },
-      ],
+      pending,
+      revalidation: approvedRevalidation(pending),
       deleteItem: async () => {
-        throw new Error("Radarr unavailable");
+        throw unavailableArrError();
       },
     });
 
@@ -223,6 +325,51 @@ test("live deletion can use guarded direct filesystem fallback", async () => {
     assert.equal(result.deletedTotal, 1);
     assert.equal(result.pending[0].DeletionMethod, "filesystem");
     await assert.rejects(fs.access(target), /ENOENT/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("live deletion never uses filesystem fallback after an Arr service failure", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-fallback-error-"));
+  const root = path.join(directory, "media");
+  const target = path.join(root, "movie");
+
+  try {
+    await fs.mkdir(target, { recursive: true });
+    await fs.writeFile(path.join(target, "movie.mkv"), "media", "utf8");
+
+    const pending = [
+      {
+        ItemId: "movie-1",
+        Title: "Old Movie",
+        Type: "Movie",
+        MarkedDate: "2026-05-01",
+        Path: target,
+      },
+    ];
+
+    const result = await runDeletionCheck({
+      settings: settings({
+        dryRun: false,
+        fallback: true,
+        telegram: false,
+        allowedRoots: [root],
+      }),
+      timezone: "UTC",
+      now: new Date("2026-06-20T04:00:00.000Z"),
+      pending,
+      revalidation: approvedRevalidation(pending),
+      deleteItem: async () => {
+        const error = new Error("Radarr delete media failed: HTTP 503 service unavailable");
+        error.status = 503;
+        throw error;
+      },
+    });
+
+    assert.equal(result.deletedTotal, 0);
+    assert.equal(result.failedTotal, 1);
+    await fs.access(target);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

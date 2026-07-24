@@ -15,6 +15,13 @@ function runTypeForPreviewSource(source) {
   return source === "scheduler" ? "scan" : "preview";
 }
 
+export function runStatusFromStages({ librarySync, notifications, cleanup } = {}) {
+  const statuses = [librarySync?.status, notifications?.status, cleanup?.status];
+  return statuses.some((status) => ["failed", "partial"].includes(status))
+    ? "partial"
+    : "success";
+}
+
 export function entryFromPreviewResult({
   source,
   result,
@@ -24,11 +31,14 @@ export function entryFromPreviewResult({
   notifications,
   cleanup,
 }) {
+  const librarySyncWarnings = Array.isArray(librarySync?.scanWarnings)
+    ? librarySync.scanWarnings.map(String)
+    : [];
   return {
     id: `${completedAt}-${source}`,
     source,
     type: runTypeForPreviewSource(source),
-    status: "success",
+    status: runStatusFromStages({ librarySync, notifications, cleanup }),
     startedAt,
     completedAt,
     readOnly: result.readOnly !== false,
@@ -42,7 +52,7 @@ export function entryFromPreviewResult({
     existingPendingMovies: Number(result.summary?.existingPendingMovies || 0),
     existingPendingSeries: Number(result.summary?.existingPendingSeries || 0),
     skipped: result.summary?.skipped || {},
-    warnings: asList(result.warnings).map(String),
+    warnings: [...asList(result.warnings).map(String), ...librarySyncWarnings],
     librarySync: librarySync
       ? {
           status: librarySync.status || (librarySync.skipped ? "skipped" : "success"),
@@ -78,6 +88,7 @@ export function entryFromPreviewResult({
           expired: Number(cleanup.expiredTotal || 0),
           deleted: Number(cleanup.deletedTotal || 0),
           failed: Number(cleanup.failedTotal || 0),
+          deferred: Number(cleanup.deferredTotal || 0),
           message: safeString(cleanup.message),
         }
       : null,
@@ -101,6 +112,7 @@ export function entryFromError({ source, type = "preview", error, startedAt }) {
 export class RunLogService {
   constructor(store) {
     this.store = store;
+    this.writeTail = Promise.resolve();
   }
 
   async list({ limit = 100 } = {}) {
@@ -108,10 +120,15 @@ export class RunLogService {
   }
 
   async append(entry) {
-    const current = asList(await this.store.read());
-    const next = [entry, ...current].slice(0, MAX_ENTRIES);
-    await this.store.write(next);
-    return entry;
+    const append = async () => {
+      const current = asList(await this.store.read());
+      const next = [entry, ...current].slice(0, MAX_ENTRIES);
+      await this.store.write(next);
+      return entry;
+    };
+    const task = this.writeTail.then(append, append);
+    this.writeTail = task.catch(() => {});
+    return task;
   }
 
   async file() {

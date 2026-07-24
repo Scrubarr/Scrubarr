@@ -1,7 +1,7 @@
 {
   "name": "Scrubarr",
   "short_name": "Scrubarr",
-  "description": "Scrub Your Emby Libraries Clean",
+  "description": "Scrub Your Emby or Jellyfin Libraries Clean",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

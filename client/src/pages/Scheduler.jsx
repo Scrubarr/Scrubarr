@@ -252,7 +252,7 @@ export default function Scheduler() {
         <StatePanel tone="error">Last run failed: {lastRun.message}</StatePanel>
       )}
 
-      <div className="sticky bottom-4 flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur">
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur md:sticky md:bottom-4">
         {state.message && (
           <span
             className={`mr-auto text-sm ${

@@ -8,6 +8,7 @@ import {
 import StatePanel from "../components/StatePanel.jsx";
 import MediaTypeBadge from "../components/MediaTypeBadge.jsx";
 import CleanupPreview from "../components/CleanupPreview.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import {
   Field,
   HelpTooltip,
@@ -34,6 +35,9 @@ const emptyFilters = {
   IncludeGenres: [],
   ExcludeGenres: [],
 };
+
+const HIGH_MOVIE_QUEUE_LIMIT = 25;
+const HIGH_SERIES_QUEUE_LIMIT = 10;
 
 function configuredSecret(value) {
   return Boolean(value) || value === true;
@@ -290,6 +294,28 @@ function PreviewModeExplanation({ enabled }) {
   );
 }
 
+function QueueLimitWarning({ movieLimit, seriesLimit, providerLabel }) {
+  const highMovies = Number(movieLimit) > HIGH_MOVIE_QUEUE_LIMIT;
+  const highSeries = Number(seriesLimit) > HIGH_SERIES_QUEUE_LIMIT;
+
+  if (!highMovies && !highSeries) return null;
+
+  const parts = [];
+  if (highMovies) parts.push(`${movieLimit} movies`);
+  if (highSeries) parts.push(`${seriesLimit} series`);
+
+  return (
+    <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 md:col-span-3">
+      <p className="font-semibold">High queue limit</p>
+      <p className="mt-1">
+        Scrubarr can add up to {parts.join(" and ")} per run. That can make the
+        Leaving Soon libraries on {providerLabel} large and harder to review.
+        Keep this intentional.
+      </p>
+    </div>
+  );
+}
+
 function ModeSelect({ value, onChange }) {
   return (
     <SelectInput value={value} onChange={onChange}>
@@ -406,10 +432,12 @@ function MediaFilterSection({
 
 export default function CleanupRules() {
   const [settings, setSettings] = useState(null);
+  const [savedPreviewOnly, setSavedPreviewOnly] = useState(null);
   const [ruleSummary, setRuleSummary] = useState(null);
   const [ruleSummaryError, setRuleSummaryError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [saveState, setSaveState] = useState({ state: "idle", message: "" });
+  const [liveModeConfirmOpen, setLiveModeConfirmOpen] = useState(false);
   const [mediaServerGenres, setMediaServerGenres] = useState([]);
   const [mediaServerGenresState, setMediaServerGenresState] = useState({
     state: "idle",
@@ -449,7 +477,11 @@ export default function CleanupRules() {
 
   useEffect(() => {
     requestJson("/api/settings")
-      .then((loadedSettings) => setSettings(normalizeCleanupSettings(loadedSettings)))
+      .then((loadedSettings) => {
+        const normalized = normalizeCleanupSettings(loadedSettings);
+        setSettings(normalized);
+        setSavedPreviewOnly(normalized.CleanupRules.DryRun);
+      })
       .catch((error) => setLoadError(error.message));
   }, []);
 
@@ -512,8 +544,7 @@ export default function CleanupRules() {
     setValidationErrors((current) => clearValidationForPath(current, path));
   }
 
-  async function save(event) {
-    event.preventDefault();
+  async function persistSettings() {
     setValidationErrors([]);
     setSaveState({ state: "loading", message: "Saving cleanup rules..." });
     try {
@@ -521,13 +552,28 @@ export default function CleanupRules() {
         method: "PUT",
         body: JSON.stringify(settings),
       });
-      setSettings(normalizeCleanupSettings(data.settings));
+      const normalized = normalizeCleanupSettings(data.settings);
+      setSettings(normalized);
+      setSavedPreviewOnly(normalized.CleanupRules.DryRun);
       setValidationErrors([]);
       setSaveState({ state: "success", message: "Cleanup rules saved." });
     } catch (error) {
       setValidationErrors(validationDetails(error));
       setSaveState({ state: "error", message: validationSummaryFor(error) });
     }
+  }
+
+  function save(event) {
+    event.preventDefault();
+    const disablingPreviewOnly =
+      savedPreviewOnly === true && settings.CleanupRules.DryRun === false;
+
+    if (disablingPreviewOnly) {
+      setLiveModeConfirmOpen(true);
+      return;
+    }
+
+    persistSettings();
   }
 
   if (loadError) return <StatePanel tone="error">{loadError}</StatePanel>;
@@ -626,11 +672,24 @@ export default function CleanupRules() {
       />
 
       <Section
-        title="Queue and safety"
+        title="Run mode and queue safety"
         icon={<ShieldCheck size={19} />}
-        description="Queue limits, review window, and deletion safeguards."
+        description="Choose preview or live cleanup, then set queue limits, timing, and safeguards."
         contentClassName="grid min-w-0 gap-4 p-5 md:grid-cols-3"
       >
+        <Toggle
+          label="Preview only mode"
+          help="Enabled means scan, queue, notify, and report only. Disabled means expired pending media can be deleted during scheduled cleanup."
+          warning={
+            settings.CleanupRules.DryRun
+              ? "Enabled: Scrubarr will not delete media."
+              : "Disabled: expired pending media can be deleted during scheduled cleanup."
+          }
+          checked={settings.CleanupRules.DryRun}
+          onChange={(value) => set("CleanupRules.DryRun", value)}
+          className="md:col-span-3"
+          error={fieldError("CleanupRules.DryRun")}
+        />
         <PreviewModeExplanation enabled={settings.CleanupRules.DryRun} />
         <Field
           label="Maximum movies marked"
@@ -654,13 +713,15 @@ export default function CleanupRules() {
             onChange={(value) => set("Limits.MaxSeriesMarked", value)}
           />
         </Field>
+        <QueueLimitWarning
+          movieLimit={settings.Limits.MaxMoviesMarked}
+          seriesLimit={settings.Limits.MaxSeriesMarked}
+          providerLabel={mediaServerLabel}
+        />
         <Field
           label="Days until deletion"
           help="How many days an item remains pending after being marked before cleanup can remove it."
-          error={fieldError([
-            "DeletionSchedule.DaysUntilDeletion",
-            "DeletionSchedule.NotificationDays",
-          ])}
+          error={fieldError("DeletionSchedule.DaysUntilDeletion")}
         >
           <NumberInput
             value={settings.DeletionSchedule.DaysUntilDeletion}
@@ -677,19 +738,6 @@ export default function CleanupRules() {
           onChange={(value) => set("CleanupRules.ProtectInProgress", value)}
           className="md:col-span-3"
           error={fieldError("CleanupRules.ProtectInProgress")}
-        />
-        <Toggle
-          label="Preview only mode"
-          help="Enabled means scan, queue, notify, and report only. Disabled means expired pending media can be deleted during scheduled cleanup."
-          warning={
-            settings.CleanupRules.DryRun
-              ? "Enabled: Scrubarr will not delete media."
-              : "Disabled: expired pending media can be deleted during scheduled cleanup."
-          }
-          checked={settings.CleanupRules.DryRun}
-          onChange={(value) => set("CleanupRules.DryRun", value)}
-          className="md:col-span-3"
-          error={fieldError("CleanupRules.DryRun")}
         />
         <Toggle
           label="Tag pending items in Radarr/Sonarr"
@@ -756,6 +804,32 @@ export default function CleanupRules() {
           Save cleanup rules
         </button>
       </div>
+      <ConfirmDialog
+        open={liveModeConfirmOpen}
+        tone="danger"
+        title="Disable preview only mode?"
+        message="Scheduled cleanup can delete expired pending media after this save. Review the cleanup rules and pending queue before continuing."
+        detail={
+          <div className="space-y-2 text-sm leading-6 text-neutral-300">
+            <p>Preview only mode is currently being turned off.</p>
+            <p>
+              If scheduled runs are enabled, Scrubarr can remove eligible pending
+              media during the next live cleanup run.
+            </p>
+          </div>
+        }
+        confirmLabel="Yes, disable preview only mode"
+        cancelLabel="No, keep preview only mode"
+        busy={saveState.state === "loading"}
+        onCancel={() => {
+          setLiveModeConfirmOpen(false);
+          set("CleanupRules.DryRun", true);
+        }}
+        onConfirm={() => {
+          setLiveModeConfirmOpen(false);
+          persistSettings();
+        }}
+      />
     </form>
   );
 }

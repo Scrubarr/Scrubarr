@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import ConfirmMediaDetail from "../components/ConfirmMediaDetail.jsx";
+import { SelectInput } from "../components/FormControls.jsx";
 import MediaCard from "../components/MediaCard.jsx";
 import StatePanel from "../components/StatePanel.jsx";
 import { requestJson } from "../lib/api.js";
@@ -16,6 +17,8 @@ export default function Exclusions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [term, setTerm] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("title");
   const [busyItem, setBusyItem] = useState("");
   const [notice, setNotice] = useState("");
   const [removeConfirm, setRemoveConfirm] = useState(null);
@@ -40,22 +43,46 @@ export default function Exclusions() {
 
   const filteredItems = useMemo(() => {
     const query = term.trim().toLowerCase();
-    if (!query) return items;
-    return items.filter((item) => {
-      const searchable = [
-        item.Title,
-        item.Type,
-        item.Year,
-        item.Arr,
-        item.ArrId,
-        item.Path,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(query);
-    });
-  }, [items, term]);
+    const compareTitles = (left, right) =>
+      String(left?.Title || "").localeCompare(String(right?.Title || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+
+    return items
+      .filter((item) => {
+        if (typeFilter !== "all" && item.Type !== typeFilter) return false;
+        if (!query) return true;
+        const searchable = [
+          item.Title,
+          item.Type,
+          item.Year,
+          item.Arr,
+          item.ArrId,
+          item.Path,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return searchable.includes(query);
+      })
+      .slice()
+      .sort((left, right) => {
+        if (sortBy === "year-newest") {
+          return Number(right.Year || 0) - Number(left.Year || 0) || compareTitles(left, right);
+        }
+        if (sortBy === "year-oldest") {
+          return Number(left.Year || 0) - Number(right.Year || 0) || compareTitles(left, right);
+        }
+        if (sortBy === "movies") {
+          return String(left.Type || "").localeCompare(String(right.Type || "")) || compareTitles(left, right);
+        }
+        if (sortBy === "series") {
+          return String(right.Type || "").localeCompare(String(left.Type || "")) || compareTitles(left, right);
+        }
+        return compareTitles(left, right);
+      });
+  }, [items, sortBy, term, typeFilter]);
 
   function clearSearch() {
     setTerm("");
@@ -109,7 +136,7 @@ export default function Exclusions() {
 
       <section className="rounded-xl border border-line bg-panel p-5">
         <form
-          className="flex flex-col gap-3 sm:flex-row"
+          className="flex flex-col gap-3 lg:flex-row lg:items-end"
           onSubmit={(event) => event.preventDefault()}
         >
           <label className="relative flex-1">
@@ -134,8 +161,26 @@ export default function Exclusions() {
               Clear
             </button>
           )}
+          <label className="min-w-0 text-xs font-medium text-neutral-400 sm:w-36">
+            Filter
+            <SelectInput value={typeFilter} onChange={setTypeFilter}>
+              <option value="all">All media</option>
+              <option value="Movie">Movies</option>
+              <option value="Series">Series</option>
+            </SelectInput>
+          </label>
+          <label className="min-w-0 text-xs font-medium text-neutral-400 sm:w-48">
+            Sort by
+            <SelectInput value={sortBy} onChange={setSortBy}>
+              <option value="title">Title A-Z</option>
+              <option value="year-newest">Year newest</option>
+              <option value="year-oldest">Year oldest</option>
+              <option value="movies">Movies first</option>
+              <option value="series">Series first</option>
+            </SelectInput>
+          </label>
         </form>
-        {term && (
+        {(term || typeFilter !== "all") && (
           <p className="mt-3 text-sm text-neutral-400">
             Showing {filteredItems.length} of {items.length} protected item
             {items.length === 1 ? "" : "s"}.

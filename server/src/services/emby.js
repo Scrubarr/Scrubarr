@@ -152,11 +152,12 @@ export async function refreshEmbyLibraryItem(config, itemId) {
   );
 }
 
-export async function getEmbyLibraryItemCount(config, itemId) {
+export async function getEmbyLibraryItemCount(config, itemId, { includeItemTypes } = {}) {
   if (!itemId) throw new Error("Emby library item id is required");
   const response = await embyRequest(config, "/Items", {
     ParentId: itemId,
     Recursive: true,
+    IncludeItemTypes: includeItemTypes,
     Limit: 0,
   });
   const data = await response.json();
@@ -307,6 +308,13 @@ export async function getEmbyUsers(config) {
     );
 }
 
+function activeMediaPath(item = {}) {
+  const mediaSourcePath = Array.isArray(item.MediaSources)
+    ? item.MediaSources.find((source) => source?.Path)?.Path
+    : null;
+  return mediaSourcePath || item.Path || null;
+}
+
 export async function getEmbyActiveSessions(config) {
   const response = await embyRequest(config, "/Sessions", {}, {
     operation: "load active playback sessions",
@@ -323,8 +331,11 @@ export async function getEmbyActiveSessions(config) {
       seriesId: session.NowPlayingItem.SeriesId
         ? String(session.NowPlayingItem.SeriesId)
         : null,
+      seriesTitle: String(session.NowPlayingItem.SeriesName || ""),
       type: String(session.NowPlayingItem.Type || ""),
       title: String(session.NowPlayingItem.Name || "Unknown media"),
+      year: Number(session.NowPlayingItem.ProductionYear) || null,
+      mediaPath: activeMediaPath(session.NowPlayingItem),
       paused: session.PlayState?.IsPaused === true,
     }));
 }

@@ -3,7 +3,8 @@ node_modules/
 dev-jellyfin-test/
 dev-jellyfin-e2e/
 dist/
-.env
+.env*
+!.env.example
 data/*.json
 data/deleted/*.json
 data/backups/

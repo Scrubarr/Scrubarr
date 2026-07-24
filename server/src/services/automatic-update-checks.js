@@ -19,6 +19,8 @@ function resultSummary(result, source, checkedAt) {
     updateAvailable: result.updateAvailable === true,
     releaseUrl: result.releaseUrl || null,
     notes: result.notes || null,
+    dockerImage: result.dockerImage || null,
+    dockerImageDigest: result.dockerImageDigest || null,
     message:
       result.message ||
       (result.updateAvailable
@@ -122,6 +124,8 @@ export class AutomaticUpdateCheckService {
         updateAvailable: false,
         releaseUrl: null,
         notes: null,
+        dockerImage: null,
+        dockerImageDigest: null,
         message: error.message || "Update check failed.",
       };
       await this.persist();

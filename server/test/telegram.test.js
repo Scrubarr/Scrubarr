@@ -25,7 +25,9 @@ test("pending messages group by media type then days remaining", () => {
   ]);
 
   assert.ok(message.indexOf("🎬 Movies") < message.indexOf("📺 Series"));
-  assert.ok(message.indexOf("20 day(s) remaining") < message.indexOf("10 day(s) remaining"));
+  assert.ok(message.indexOf("20 days remaining:") < message.indexOf("10 days remaining:"));
+  assert.match(message, /1 day remaining:/);
+  assert.equal(message.includes("day(s)"), false);
   assert.match(message, /• Movie A/);
   assert.match(message, /• Show B/);
 });
@@ -220,7 +222,7 @@ test("pending notification sender marks only due items as notified", async () =>
       ChatID: "-100123",
       NotificationPolicy: "standard",
     },
-    DeletionSchedule: { DaysUntilDeletion: 20, NotificationDays: [20, 10, 5, 1] },
+    DeletionSchedule: { DaysUntilDeletion: 20 },
   };
   const pending = [
     { Title: "Due Movie", Type: "Movie", MarkedDate: "2026-06-20", Notified: [] },

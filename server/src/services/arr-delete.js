@@ -2,13 +2,23 @@ import { fetchExternal } from "./external-error.js";
 
 const TIMEOUT_MS = 15000;
 
+export class ArrDeleteUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ArrDeleteUnavailableError";
+    this.code = "arr_delete_unavailable";
+  }
+}
+
 function trimUrl(value) {
   return String(value || "").replace(/\/+$/, "");
 }
 
 async function arrDeleteRequest(service, config, pathname, searchParams = {}) {
   if (!config?.Enabled || !config.Url || !config.ApiKey) {
-    throw new Error("Arr deletion service is not enabled or configured");
+    throw new ArrDeleteUnavailableError(
+      "Arr deletion service is not enabled or configured",
+    );
   }
 
   const url = new URL(`${trimUrl(config.Url)}${pathname}`);
@@ -53,5 +63,5 @@ export async function deleteViaArr(settings, item) {
   if (item.Type === "Series" && item.Arr === "Sonarr") {
     return deleteSeriesViaSonarr(settings, item);
   }
-  throw new Error("No matching Arr delete target");
+  throw new ArrDeleteUnavailableError("No matching Arr delete target");
 }

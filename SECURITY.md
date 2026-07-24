@@ -50,7 +50,13 @@ Do not share:
 
 Scrubarr trusts only the configured update manifest source. Official update
 manifests are signed with an Ed25519 key, and Scrubarr verifies the signature
-before trusting the version, release URL, or Docker image name.
+before trusting the version, release URL, Docker image name, or immutable Docker
+image digest. The digest binds an update to the exact image bytes that were
+published for that release.
+
+Older signed manifests without a digest are accepted only for compatibility
+with earlier Scrubarr releases. Future official manifests should include the
+signed digest.
 
 Scrubarr should not be given access to the Docker socket. The update checker is
 read-only; the admin applies Docker updates from the host machine.

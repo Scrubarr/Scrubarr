@@ -128,7 +128,7 @@ function configuredSecret(value) {
   return Boolean(value) || value === true;
 }
 
-function PendingIntegrityIssueList({ issues }) {
+function IntegrityIssueList({ issues }) {
   return (
     <ul className="mt-2 space-y-1 text-xs leading-5 text-neutral-400">
       {issues.map((issue) => (
@@ -147,7 +147,7 @@ function arrReady(arr) {
 
 function lastRunDetail(lastRun) {
   if (!lastRun) return "No scheduler run recorded.";
-  if (lastRun.status !== "success") return lastRun.message || "Run failed.";
+  if (lastRun.status === "failed") return lastRun.message || "Run failed.";
 
   const queued = Number(lastRun.queued || 0);
   const candidates = Number(lastRun.candidates || 0);
@@ -155,19 +155,22 @@ function lastRunDetail(lastRun) {
   const expired = Number(lastRun.cleanup?.expired || 0);
   const deleted = Number(lastRun.cleanup?.deleted || 0);
   const failed = Number(lastRun.cleanup?.failed || 0);
+  const deferred = Number(lastRun.cleanup?.deferred || 0);
   const parts = [];
 
   parts.push(`${candidates} ${plural(candidates, "candidate")} found`);
   if (queued > 0) parts.push(`${queued} queued`);
   if (synced > 0) parts.push(`${synced} pending synced`);
-  if (expired > 0 || deleted > 0 || failed > 0) {
+  if (expired > 0 || deleted > 0 || failed > 0 || deferred > 0) {
     parts.push(`${deleted} deleted`);
     if (expired > 0) parts.push(`${expired} eligible`);
     if (failed > 0) parts.push(`${failed} failed`);
+    if (deferred > 0) parts.push(`${deferred} deferred for review`);
   }
   if (lastRun.notifications?.sent) parts.push("Telegram sent");
 
-  return `${parts.join("; ")}.`;
+  const detail = `${parts.join("; ")}.`;
+  return lastRun.status === "partial" ? `Completed with follow-up needed: ${detail}` : detail;
 }
 
 export default function Safety() {
@@ -176,6 +179,13 @@ export default function Safety() {
   const [integrityConfirmOpen, setIntegrityConfirmOpen] = useState(false);
   const [integrityBusy, setIntegrityBusy] = useState(false);
   const [integrityAction, setIntegrityAction] = useState({
+    state: "idle",
+    message: "",
+  });
+  const [exclusionIntegrityConfirmOpen, setExclusionIntegrityConfirmOpen] =
+    useState(false);
+  const [exclusionIntegrityBusy, setExclusionIntegrityBusy] = useState(false);
+  const [exclusionIntegrityAction, setExclusionIntegrityAction] = useState({
     state: "idle",
     message: "",
   });
@@ -191,6 +201,7 @@ export default function Safety() {
         pendingSummary,
         exclusions,
         pendingIntegrity,
+        exclusionIntegrity,
         mediaServerStats,
       ] = await Promise.all([
         requestJson("/api/settings"),
@@ -200,6 +211,7 @@ export default function Safety() {
         requestJson("/api/pending/summary"),
         requestJson("/api/exclusions"),
         requestJson("/api/pending/integrity"),
+        requestJson("/api/exclusions/integrity"),
         requestJson("/api/dashboard/stats").then(
           (value) => ({ ok: true, value }),
           (error) => ({ ok: false, message: error.message }),
@@ -213,6 +225,7 @@ export default function Safety() {
         pendingSummary,
         exclusions,
         pendingIntegrity,
+        exclusionIntegrity,
         mediaServerStats,
       });
       setState({ state: "idle", message: "" });
@@ -235,6 +248,7 @@ export default function Safety() {
       pendingSummary,
       exclusions,
       pendingIntegrity,
+      exclusionIntegrity,
       mediaServerStats,
     } = data;
     const mediaServer = mediaServerFromSettings(settings);
@@ -270,6 +284,7 @@ export default function Safety() {
     const warnings = [
       liveDeletionRisk && "Pending items can be deleted by a scheduled run",
       pendingIntegrity?.staleCount > 0 && "Pending queue needs review",
+      (exclusionIntegrity?.staleCount > 0 || exclusionIntegrity?.reviewCount > 0) && "Exclusions need review",
       !mediaServerSelected && "Media server not selected",
       mediaServerSelected && !mediaServerConfigured && `${mediaServer.label} setup is incomplete`,
       mediaServerConnectionError && `${mediaServer.label} connection needs attention`,
@@ -304,6 +319,7 @@ export default function Safety() {
       nextEligible: pendingSummary?.nextEligible || null,
       pendingSummary,
       pendingIntegrity,
+      exclusionIntegrity,
       blockers,
       warnings,
       enabledFeatures,
@@ -333,6 +349,32 @@ export default function Safety() {
       setIntegrityAction({ state: "error", message: error.message });
     } finally {
       setIntegrityBusy(false);
+    }
+  }
+
+  async function removeStaleExclusions() {
+    setExclusionIntegrityConfirmOpen(false);
+    setExclusionIntegrityBusy(true);
+    setExclusionIntegrityAction({
+      state: "loading",
+      message: "Rechecking exclusions before removing stale records...",
+    });
+    try {
+      const result = await requestJson("/api/exclusions/stale", {
+        method: "DELETE",
+      });
+      setExclusionIntegrityAction({
+        state: "success",
+        message:
+          result.removedCount > 0
+            ? `${result.removedCount} stale ${plural(result.removedCount, "exclusion")} removed.`
+            : "No stale exclusions remained after the recheck.",
+      });
+      await load();
+    } catch (error) {
+      setExclusionIntegrityAction({ state: "error", message: error.message });
+    } finally {
+      setExclusionIntegrityBusy(false);
     }
   }
 
@@ -369,6 +411,17 @@ export default function Safety() {
         busy={integrityBusy}
         onCancel={() => setIntegrityConfirmOpen(false)}
         onConfirm={removeStalePendingItems}
+      />
+      <ConfirmDialog
+        open={exclusionIntegrityConfirmOpen}
+        icon={<Trash2 size={22} />}
+        title="Remove confirmed stale exclusions?"
+        message="Scrubarr will recheck exclusions first, then remove only records confirmed absent by more than one source. Discrepancies and incomplete checks remain protected. Media files and pending items will not be deleted."
+        tone="danger"
+        confirmLabel="Remove confirmed exclusions"
+        busy={exclusionIntegrityBusy}
+        onCancel={() => setExclusionIntegrityConfirmOpen(false)}
+        onConfirm={removeStaleExclusions}
       />
       <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -489,7 +542,13 @@ export default function Safety() {
           label="Last run"
           value={displayDate(scheduler.lastRun?.completedAt, summary.timezone)}
           detail={lastRunDetail(scheduler.lastRun)}
-          tone={scheduler.lastRun?.status === "failed" ? "danger" : "neutral"}
+          tone={
+            scheduler.lastRun?.status === "failed"
+              ? "danger"
+              : scheduler.lastRun?.status === "partial"
+                ? "warning"
+                : "neutral"
+          }
         />
       </div>
 
@@ -553,7 +612,7 @@ export default function Safety() {
                     <span className="text-xs text-neutral-400">{item.Year}</span>
                   )}
                 </div>
-                <PendingIntegrityIssueList issues={item.issues} />
+                <IntegrityIssueList issues={item.issues} />
               </article>
             ))}
           </div>
@@ -568,6 +627,129 @@ export default function Safety() {
               <p className="font-medium text-neutral-300">Checks skipped</p>
               <ul className="mt-2 space-y-1">
                 {summary.pendingIntegrity.warnings.map((warning) => (
+                  <li key={warning}>- {warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
+      {summary.exclusionIntegrity &&
+        (summary.exclusionIntegrity.staleCount > 0 ||
+          summary.exclusionIntegrity.reviewCount > 0 ||
+          summary.exclusionIntegrity.warnings.length > 0) && (
+        <section
+          id="exclusion-integrity"
+          className="scroll-mt-24 rounded-xl border border-amber-800/60 bg-panel"
+        >
+          <div className="border-b border-line p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="text-amber-300" size={20} />
+                  <h2 className="text-lg font-semibold">Exclusions need review</h2>
+                </div>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-400">
+                  Scrubarr checks exclusions against current media-server, source,
+                  and Arr data. Review discrepancies first. Only exclusions confirmed
+                  absent by more than one source can be removed here.
+                </p>
+              </div>
+              {summary.exclusionIntegrity.staleCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExclusionIntegrityConfirmOpen(true)}
+                  disabled={exclusionIntegrityBusy}
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-red-800/70 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40 disabled:opacity-60"
+                >
+                  {exclusionIntegrityBusy ? (
+                    <LoaderCircle className="animate-spin" size={16} />
+                  ) : (
+                    <Trash2 size={16} />
+                  )}
+                  Remove confirmed stale exclusions
+                </button>
+              )}
+            </div>
+            {exclusionIntegrityAction.message && (
+              <p
+                className={`mt-3 text-sm ${
+                  exclusionIntegrityAction.state === "error"
+                    ? "text-red-200"
+                    : exclusionIntegrityAction.state === "success"
+                      ? "text-emerald-300"
+                      : "text-neutral-400"
+                }`}
+              >
+                {exclusionIntegrityAction.message}
+              </p>
+            )}
+          </div>
+          {summary.exclusionIntegrity.items.length > 0 && (
+            <div className="border-b border-line px-5 pt-5 text-sm font-medium text-neutral-300">
+              Confirmed absent
+            </div>
+          )}
+          <div className="grid gap-3 p-5 md:grid-cols-2">
+            {summary.exclusionIntegrity.items.slice(0, 8).map((item) => (
+              <article
+                key={item.key}
+                className="rounded-lg border border-line bg-canvas/60 p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-accent">{item.Title}</h3>
+                  <StatusPill tone="neutral">{item.Type}</StatusPill>
+                  {item.Year && (
+                    <span className="text-xs text-neutral-400">{item.Year}</span>
+                  )}
+                </div>
+                <IntegrityIssueList issues={item.issues} />
+              </article>
+            ))}
+          </div>
+          {summary.exclusionIntegrity.items.length > 8 && (
+            <p className="border-t border-line px-5 py-3 text-sm text-neutral-400">
+              And {summary.exclusionIntegrity.items.length - 8} more{" "}
+              {plural(summary.exclusionIntegrity.items.length - 8, "exclusion")}.
+            </p>
+          )}
+          {summary.exclusionIntegrity.reviewItems.length > 0 && (
+            <div className="border-t border-line p-5">
+              <p className="text-sm font-medium text-amber-200">Needs review</p>
+              <p className="mt-1 text-sm leading-6 text-neutral-400">
+                These exclusions have conflicting or incomplete checks and remain protected.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {summary.exclusionIntegrity.reviewItems.slice(0, 8).map((item) => (
+                  <article
+                    key={item.key}
+                    className="rounded-lg border border-amber-800/40 bg-canvas/60 p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-accent">{item.Title}</h3>
+                      <StatusPill tone="neutral">{item.Type}</StatusPill>
+                      {item.Year && (
+                        <span className="text-xs text-neutral-400">{item.Year}</span>
+                      )}
+                    </div>
+                    <IntegrityIssueList issues={item.issues} />
+                  </article>
+                ))}
+              </div>
+              {summary.exclusionIntegrity.reviewItems.length > 8 && (
+                <p className="mt-3 text-sm text-neutral-400">
+                  And {summary.exclusionIntegrity.reviewItems.length - 8} more{" "}
+                  {plural(summary.exclusionIntegrity.reviewItems.length - 8, "exclusion")}.
+                </p>
+              )}
+            </div>
+          )}
+          {summary.exclusionIntegrity.warnings.length > 0 && (
+            <div className="border-t border-line px-5 py-4 text-sm leading-6 text-neutral-400">
+              <p className="font-medium text-neutral-300">Checks skipped</p>
+              <ul className="mt-2 space-y-1">
+                {summary.exclusionIntegrity.warnings.map((warning) => (
                   <li key={warning}>- {warning}</li>
                 ))}
               </ul>

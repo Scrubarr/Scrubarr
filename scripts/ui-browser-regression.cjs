@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
+const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
@@ -7,6 +8,8 @@ const { chromium } = require("playwright");
 
 const root = path.resolve(__dirname, "..");
 const distIndex = path.join(root, "client", "dist", "index.html");
+const captureDocsScreenshots = process.argv.includes("--capture-docs");
+const docsScreenshotDirectory = path.join(root, "docs", "screenshots");
 
 function assert(condition, message) {
   if (!condition) {
@@ -74,11 +77,118 @@ async function launchBrowser() {
   }
 }
 
-async function seedData(dataDir) {
+async function startMockEmbyServer() {
+  const port = await getFreePort();
+  const libraries = [
+    { ItemId: "movies", Name: "Movies", CollectionType: "movies" },
+    { ItemId: "shows", Name: "TV Shows", CollectionType: "tvshows" },
+  ];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://127.0.0.1:${port}`);
+    const sendJson = (body) => {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(body));
+    };
+
+    if (
+      url.pathname === "/Library/VirtualFolders" ||
+      url.pathname === "/Library/VirtualFolders/Query"
+    ) {
+      sendJson(libraries);
+      return;
+    }
+
+    if (url.pathname === "/Users") {
+      sendJson([{ Id: "browser-user", Name: "Browser Test User" }]);
+      return;
+    }
+
+    if (url.pathname === "/Items") {
+      const parentId = url.searchParams.get("ParentId");
+      const includeTypes = url.searchParams.get("IncludeItemTypes");
+      if (parentId === "movies" && includeTypes === "Movie") {
+        sendJson({
+          TotalRecordCount: 2,
+          Items: [
+            {
+              Id: "mock-movie-1",
+              Name: "Synthetic Cinema",
+              Type: "Movie",
+              Path: "C:\\Media\\Movies\\Synthetic Cinema.mkv",
+            },
+            {
+              Id: "mock-movie-2",
+              Name: "Placeholder Picture",
+              Type: "Movie",
+              Path: "C:\\Media\\Movies\\Placeholder Picture.mkv",
+            },
+          ],
+        });
+        return;
+      }
+      if (parentId === "shows" && includeTypes === "Series") {
+        sendJson({
+          TotalRecordCount: 1,
+          Items: [
+            {
+              Id: "mock-series-1",
+              Name: "Test Pattern",
+              Type: "Series",
+              Path: "C:\\Media\\Shows\\Test Pattern",
+            },
+          ],
+        });
+        return;
+      }
+      if (parentId === "shows" && includeTypes === "Episode") {
+        sendJson({ TotalRecordCount: 12, Items: [] });
+        return;
+      }
+      sendJson({ TotalRecordCount: 0, Items: [] });
+      return;
+    }
+
+    sendJson({});
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+async function captureDocumentationScreenshot(page, name) {
+  if (!captureDocsScreenshots) {
+    return;
+  }
+
+  await fs.mkdir(docsScreenshotDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(docsScreenshotDirectory, `${name}.png`),
+    fullPage: true,
+  });
+}
+
+async function seedData(dataDir, embyUrl) {
   await fs.writeFile(
     path.join(dataDir, "config.json"),
     `${JSON.stringify(
       {
+        MediaServer: {
+          Provider: "emby",
+          Locked: true,
+        },
+        Emby: {
+          ServerUrl: embyUrl,
+          ApiKey: "browser-regression-key",
+          UserIds: [],
+          SearchLibraries: ["Movies", "TV Shows"],
+        },
         CleanupRules: { DryRun: true },
         CleanupFilters: {
           Movies: {
@@ -179,6 +289,7 @@ async function runDesktopChecks(baseUrl, browser) {
   await page.getByRole("heading", { name: "Dashboard" }).waitFor();
   await page.getByPlaceholder(/Search movies and series/i).waitFor();
   await page.getByText("Browser Smoke Movie").waitFor();
+  await captureDocumentationScreenshot(page, "dashboard");
   await clickByRole(page, "button", { name: /^Remove$/ });
   await page.getByRole("heading", { name: "Remove from pending?" }).waitFor();
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -197,22 +308,26 @@ async function runDesktopChecks(baseUrl, browser) {
   await page.goto(`${baseUrl}/cleanup`, { waitUntil: "networkidle" });
   await assertNoBlankPage(page, "Cleanup Rules");
   await page.getByText("Rule summary").waitFor();
+  await captureDocumentationScreenshot(page, "cleanup-rules");
   await clickByRole(page, "button", { name: "Preview scan" });
-  await page.waitForFunction(() => {
-    const text = document.body.innerText;
-    return (
-      text.includes("Preview complete") ||
-      text.includes("Preview failed") ||
-      text.includes("Emby URL")
-    );
-  });
+  await page.waitForFunction(
+    () => !document.body.innerText.includes("Scanning configured libraries..."),
+    { timeout: 15000 },
+  );
+  await page.getByRole("button", { name: "Preview scan" }).waitFor();
 
   await page.goto(`${baseUrl}/exclusions`, { waitUntil: "networkidle" });
   await assertNoBlankPage(page, "Exclusions");
   await page.getByText("Browser Smoke Series").waitFor();
+  await captureDocumentationScreenshot(page, "exclusions");
   await clickByRole(page, "button", { name: "Remove Browser Smoke Series" });
   await page.getByRole("heading", { name: "Remove exclusion?" }).waitFor();
   await page.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${baseUrl}/safety`, { waitUntil: "networkidle" });
+  await assertNoBlankPage(page, "Safety");
+  await page.getByRole("heading", { name: "Safety", exact: true }).waitFor();
+  await captureDocumentationScreenshot(page, "safety");
 
   await page.close();
 }
@@ -237,7 +352,7 @@ async function runMobileChecks(baseUrl, browser) {
   await page.getByText("7 selected genres.").waitFor();
   const genrePicker = page
     .locator("details")
-    .filter({ hasText: "Action, Adventure" })
+    .filter({ hasText: "Clear selection" })
     .first();
   await genrePicker.locator("summary").click();
   await genrePicker.getByText("Clear selection").waitFor();
@@ -274,7 +389,8 @@ async function main() {
   const logDir = path.join(tempRoot, "logs");
   await fs.mkdir(dataDir, { recursive: true });
   await fs.mkdir(logDir, { recursive: true });
-  await seedData(dataDir);
+  const mockEmby = await startMockEmbyServer();
+  await seedData(dataDir, mockEmby.baseUrl);
 
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -312,6 +428,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     await stopChild(child);
+    await mockEmby.close();
     await fs.rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
   }
 }

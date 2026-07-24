@@ -45,7 +45,7 @@ body:
     attributes:
       label: Scrubarr version
       description: Find this in Settings > About and updates.
-      placeholder: v1.0.1
+      placeholder: v1.1.0
     validations:
       required: false
   - type: textarea

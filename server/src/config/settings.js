@@ -41,7 +41,6 @@ export function createDefaultSettings(runtime) {
     },
     DeletionSchedule: {
       DaysUntilDeletion: 20,
-      NotificationDays: [20, 10, 5, 1],
     },
     MediaServer: {
       Provider: "emby",
@@ -56,7 +55,7 @@ export function createDefaultSettings(runtime) {
       DaysOlderThan: 365,
     },
     Limits: {
-      MaxMoviesMarked: 40,
+      MaxMoviesMarked: 5,
       MaxSeriesMarked: 3,
     },
     CleanupRules: {
@@ -100,8 +99,8 @@ export function createDefaultSettings(runtime) {
         Series: "Shows Leaving Soon",
       },
       ToBeDeletedPaths: {
-        Movies: "./data/leaving-soon/movies",
-        Series: "./data/leaving-soon/series",
+        Movies: "",
+        Series: "",
       },
       QueueWritePaths: {
         Movies: runtime?.movieQueueWritePath || "",
@@ -119,8 +118,8 @@ export function createDefaultSettings(runtime) {
         Series: "Shows Leaving Soon",
       },
       ToBeDeletedPaths: {
-        Movies: "./data/leaving-soon/movies",
-        Series: "./data/leaving-soon/series",
+        Movies: "",
+        Series: "",
       },
       QueueWritePaths: {
         Movies: runtime?.movieQueueWritePath || "",
@@ -253,6 +252,7 @@ export function normalizeRuntimeManagedSettings(settings, defaults) {
   normalized.Paths = structuredClone(defaults.Paths);
   normalized.Backups = structuredClone(defaults.Backups);
   delete normalized.SeriesHandling;
+  delete normalized.DeletionSchedule?.NotificationDays;
   normalized.Emby = {
     ...normalized.Emby,
     QueueWritePaths: structuredClone(defaults.Emby.QueueWritePaths),
@@ -394,22 +394,6 @@ export function validateSettings(settings) {
     errors,
     1,
   );
-
-  if (!Array.isArray(settings.DeletionSchedule.NotificationDays)) {
-    errors.push("DeletionSchedule.NotificationDays must be a list of integers");
-  } else {
-    const invalidNotificationDay = settings.DeletionSchedule.NotificationDays.some(
-      (day) =>
-        !Number.isInteger(day) ||
-        day < 1 ||
-        day > settings.DeletionSchedule.DaysUntilDeletion,
-    );
-    if (invalidNotificationDay) {
-      errors.push(
-        "DeletionSchedule.NotificationDays must be between 1 and DaysUntilDeletion",
-      );
-    }
-  }
 
   if (!["emby", "jellyfin"].includes(settings.MediaServer.Provider)) {
     errors.push("MediaServer.Provider must be emby or jellyfin");
