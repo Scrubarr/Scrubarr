@@ -168,6 +168,50 @@ test("persists schedule state and queues candidates during scheduled runs", asyn
   assert.equal(store.value.lastRun.status, "success");
 });
 
+test("runs a scheduled date only once after duplicate timer callbacks", async () => {
+  const store = new MemoryStore();
+  let scanCount = 0;
+  let notificationCount = 0;
+  const scanCoordinator = {
+    isBusy: () => false,
+    commitEligibleCandidates: async () => {
+      scanCount += 1;
+      return {
+        added: [],
+        result: {
+          readOnly: false,
+          candidates: [],
+          queue: { added: 0, movies: 0, series: 0 },
+          warnings: [],
+          summary: {
+            scanned: 1,
+            candidateMovies: 0,
+            candidateSeries: 0,
+          },
+        },
+      };
+    },
+  };
+  const scheduler = new SchedulerService({
+    store,
+    scanCoordinator,
+    timezone: "Pacific/Auckland",
+    notifications: async () => {
+      notificationCount += 1;
+      return { enabled: true, sent: true, due: 1, messageCount: 1 };
+    },
+  });
+
+  await scheduler.start();
+  await scheduler.runNow({ scheduledDate: "2026-07-25" });
+  await scheduler.runNow({ scheduledDate: "2026-07-25" });
+  scheduler.stop();
+
+  assert.equal(scanCount, 1);
+  assert.equal(notificationCount, 1);
+  assert.equal(store.value.lastScheduledDate, "2026-07-25");
+});
+
 test("scheduler summaries remain read-only when using an old scan coordinator", async () => {
   const store = new MemoryStore();
   const scanCoordinator = {

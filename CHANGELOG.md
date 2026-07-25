@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.5
+
+- Prevented stale scheduler timers from running after a schedule change or
+  restart.
+- Ensured each scheduled date runs once, avoiding duplicate scans, Telegram
+  notifications, and cleanup checks.
+
 ## 1.1.4
 
 - Fixed Leaving Soon library verification after queue changes. Scrubarr now

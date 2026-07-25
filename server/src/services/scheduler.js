@@ -34,6 +34,20 @@ function dateParts(date, timezone) {
   );
 }
 
+function scheduleConfigKey(config) {
+  return [
+    config.enabled === true,
+    config.frequency,
+    config.time,
+    [...config.daysOfWeek].join(","),
+  ].join("|");
+}
+
+function scheduledDateKey(date, timezone) {
+  const parts = dateParts(date, timezone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 const WEEKDAYS = {
   Sun: 0,
   Mon: 1,
@@ -187,9 +201,12 @@ export class SchedulerService {
     this.arrTagging = arrTagging || (async () => null);
     this.pendingMutations = pendingMutations;
     this.timer = null;
+    this.scheduleGeneration = 0;
+    this.activeScheduledDate = null;
     this.state = {
       config: structuredClone(DEFAULT_CONFIG),
       lastRun: null,
+      lastScheduledDate: null,
     };
   }
 
@@ -198,11 +215,16 @@ export class SchedulerService {
     this.state = {
       config: normalizeScheduleConfig(saved.config),
       lastRun: saved.lastRun || null,
+      lastScheduledDate:
+        typeof saved.lastScheduledDate === "string"
+          ? saved.lastScheduledDate
+          : null,
     };
     this.scheduleTimer();
   }
 
   stop() {
+    this.scheduleGeneration += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
@@ -237,100 +259,116 @@ export class SchedulerService {
     return this.status();
   }
 
-  async runNow() {
+  async runNow({ scheduledDate = null } = {}) {
+    if (
+      scheduledDate &&
+      (this.activeScheduledDate === scheduledDate ||
+        this.state.lastScheduledDate === scheduledDate)
+    ) {
+      return this.state.lastRun;
+    }
+
+    if (scheduledDate) this.activeScheduledDate = scheduledDate;
     const startedAt = new Date().toISOString();
     try {
-      const { added, result } = await this.pendingMutations.run(
-        "scheduled-queue-commit",
-        () =>
-          this.scanCoordinator.commitEligibleCandidates({
-            timezone: this.timezone,
-          }),
-      );
       try {
-        await this.arrTagging(added || []);
-      } catch {
-        // Arr pending tags are helpful context, but they should not fail a
-        // scheduled run after the Scrubarr queue has already been updated.
-      }
-      let librarySync = null;
-      try {
-        librarySync = await this.librarySync();
-      } catch (error) {
-        librarySync = {
-          status: "failed",
-          enabled: false,
-          refreshed: false,
-          message: error.message || "Library sync failed",
-        };
-      }
-      let notifications = null;
-      try {
-        notifications = await this.notifications();
-      } catch (error) {
-        notifications = {
-          status: "failed",
-          enabled: true,
-          sent: false,
-          due: 0,
-          messageCount: 0,
-          message: error.message || "Telegram notification failed",
-        };
-      }
-      let cleanup = null;
-      try {
-        cleanup = await this.cleanup();
-      } catch (error) {
-        cleanup = {
-          status: "failed",
-          dryRun: false,
-          expiredTotal: 0,
-          deletedTotal: 0,
-          failedTotal: 0,
-          message: error.message || "Cleanup failed",
-        };
-      }
-      const completedAt = new Date().toISOString();
-      this.state.lastRun = runSummary(
-        result,
-        startedAt,
-        completedAt,
-        librarySync,
-        notifications,
-        cleanup,
-      );
-      await this.runLog.append(
-        entryFromPreviewResult({
-          source: "scheduler",
+        const { added, result } = await this.pendingMutations.run(
+          "scheduled-queue-commit",
+          () =>
+            this.scanCoordinator.commitEligibleCandidates({
+              timezone: this.timezone,
+            }),
+        );
+        try {
+          await this.arrTagging(added || []);
+        } catch {
+          // Arr pending tags are helpful context, but they should not fail a
+          // scheduled run after the Scrubarr queue has already been updated.
+        }
+        let librarySync = null;
+        try {
+          librarySync = await this.librarySync();
+        } catch (error) {
+          librarySync = {
+            status: "failed",
+            enabled: false,
+            refreshed: false,
+            message: error.message || "Library sync failed",
+          };
+        }
+        let notifications = null;
+        try {
+          notifications = await this.notifications();
+        } catch (error) {
+          notifications = {
+            status: "failed",
+            enabled: true,
+            sent: false,
+            due: 0,
+            messageCount: 0,
+            message: error.message || "Telegram notification failed",
+          };
+        }
+        let cleanup = null;
+        try {
+          cleanup = await this.cleanup();
+        } catch (error) {
+          cleanup = {
+            status: "failed",
+            dryRun: false,
+            expiredTotal: 0,
+            deletedTotal: 0,
+            failedTotal: 0,
+            message: error.message || "Cleanup failed",
+          };
+        }
+        const completedAt = new Date().toISOString();
+        this.state.lastRun = runSummary(
           result,
           startedAt,
           completedAt,
           librarySync,
           notifications,
           cleanup,
-        }),
-      );
-    } catch (error) {
-      const failedEntry = entryFromError({
-        source: "scheduler",
-        type: "scan",
-        error,
-        startedAt,
-      });
-      this.state.lastRun = {
-        status: "failed",
-        startedAt,
-        completedAt: failedEntry.completedAt,
-        readOnly: true,
-        message: error.message || "Scheduled scan failed",
-      };
-      await this.runLog.append(failedEntry);
+        );
+        if (scheduledDate) this.state.lastScheduledDate = scheduledDate;
+        await this.runLog.append(
+          entryFromPreviewResult({
+            source: "scheduler",
+            result,
+            startedAt,
+            completedAt,
+            librarySync,
+            notifications,
+            cleanup,
+          }),
+        );
+      } catch (error) {
+        const failedEntry = entryFromError({
+          source: "scheduler",
+          type: "scan",
+          error,
+          startedAt,
+        });
+        this.state.lastRun = {
+          status: "failed",
+          startedAt,
+          completedAt: failedEntry.completedAt,
+          readOnly: true,
+          message: error.message || "Scheduled scan failed",
+        };
+        await this.runLog.append(failedEntry);
+        await this.persist();
+        throw error;
+      }
       await this.persist();
-      throw error;
+      this.scheduleTimer();
+      return this.state.lastRun;
+    } finally {
+      if (scheduledDate === this.activeScheduledDate) {
+        this.activeScheduledDate = null;
+      }
     }
-    await this.persist();
-    this.scheduleTimer();
-    return this.state.lastRun;
   }
 
   async persist() {
@@ -339,16 +377,25 @@ export class SchedulerService {
 
   scheduleTimer() {
     this.stop();
+    const scheduleGeneration = this.scheduleGeneration;
     const nextRun = nextScheduledRun(
       this.state.config,
       this.timezone,
       new Date(),
     );
     if (!nextRun) return;
+    const configKey = scheduleConfigKey(this.state.config);
+    const scheduledDate = scheduledDateKey(nextRun, this.timezone);
     const delay = Math.min(nextRun.getTime() - Date.now(), 2_147_000_000);
     this.timer = setTimeout(async () => {
+      if (
+        scheduleGeneration !== this.scheduleGeneration ||
+        configKey !== scheduleConfigKey(this.state.config)
+      ) {
+        return;
+      }
       try {
-        await this.runNow();
+        await this.runNow({ scheduledDate });
       } catch (error) {
         console.error(`Scheduled scan failed: ${error.message}`);
         this.scheduleTimer();
