@@ -230,6 +230,28 @@ function dockerUpdateCommandText(targetImage) {
   ].join("\n");
 }
 
+function resolvedDockerUpdateImage({
+  targetImage,
+  updateAvailable,
+  latestVersion,
+  signedDigest,
+}) {
+  const requestedImage = dockerImageFromTarget(targetImage);
+  const latestTagImage = latestVersion
+    ? `${scrubarrDockerImage}:${dockerTagFromVersion(latestVersion)}`
+    : "";
+
+  if (
+    updateAvailable &&
+    signedDigest &&
+    (!requestedImage || requestedImage === latestTagImage)
+  ) {
+    return signedDigest;
+  }
+
+  return requestedImage || latestTagImage;
+}
+
 async function fetchMediaServerUsers() {
   return requestJson("/api/settings/media-server/users");
 }
@@ -713,10 +735,12 @@ function GuidedUpdatePanel({
   const signedDigest = updateAvailable
     ? updateInfo?.lastCheck?.dockerImageDigest || ""
     : "";
-  const effectiveImage =
-    dockerImageFromTarget(targetImage) ||
-    signedDigest ||
-    (updateAvailable ? `${scrubarrDockerImage}:${dockerTagFromVersion(latest)}` : "");
+  const effectiveImage = resolvedDockerUpdateImage({
+    targetImage,
+    updateAvailable,
+    latestVersion: updateAvailable ? latest : "",
+    signedDigest,
+  });
   const currentTag = dockerTagFromVersion(updateInfo?.currentVersion);
 
   return (
@@ -763,7 +787,7 @@ function GuidedUpdatePanel({
         <div>
           <label className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-200">
             Docker image to install
-            <HelpTooltip text="Used only to generate Docker update commands. When an update includes a signed immutable image digest, Scrubarr fills that exact image automatically. Keep it unchanged to install the reviewed release. You can also enter a known Scrubarr tag, for example v1.0.3. Scrubarr does not pull or install the image automatically." />
+            <HelpTooltip text="Used only to generate Docker update commands. Scrubarr shows the release tag here, while the generated commands automatically use its signed immutable image digest when available. You can also enter a different known Scrubarr tag, for example v1.0.3. Scrubarr does not pull or install the image automatically." />
           </label>
           <input
             className={`${inputClass} mt-1`}
@@ -773,7 +797,8 @@ function GuidedUpdatePanel({
           />
           {signedDigest && effectiveImage === signedDigest && (
             <p className="mt-1 text-xs leading-5 text-emerald-300">
-              Using the signed immutable image digest for this release.
+              Version {dockerTagFromVersion(latest)} will use its verified signed
+              image digest in the generated commands.
             </p>
           )}
         </div>
@@ -911,13 +936,11 @@ export default function Settings() {
 
   useEffect(() => {
     const latest = updateInfo?.lastCheck?.latestVersion;
-    const digest = updateInfo?.lastCheck?.dockerImageDigest;
     if (!updateInfo?.lastCheck?.updateAvailable || !latest) return;
     setUpdateTargetImage((current) =>
-      current || digest || dockerTagFromVersion(latest),
+      current || dockerTagFromVersion(latest),
     );
   }, [
-    updateInfo?.lastCheck?.dockerImageDigest,
     updateInfo?.lastCheck?.latestVersion,
     updateInfo?.lastCheck?.updateAvailable,
   ]);
@@ -1083,10 +1106,12 @@ export default function Settings() {
     const latest = updateInfo?.lastCheck?.updateAvailable
       ? updateInfo.lastCheck.latestVersion
       : "";
-    const targetImage =
-      updateTargetImage ||
-      updateInfo?.lastCheck?.dockerImageDigest ||
-      dockerTagFromVersion(latest);
+    const targetImage = resolvedDockerUpdateImage({
+      targetImage: updateTargetImage,
+      updateAvailable: updateInfo?.lastCheck?.updateAvailable === true,
+      latestVersion: latest,
+      signedDigest: updateInfo?.lastCheck?.dockerImageDigest || "",
+    });
     try {
       await navigator.clipboard.writeText(dockerUpdateCommandText(targetImage));
       setUpdateCopyState("copied");

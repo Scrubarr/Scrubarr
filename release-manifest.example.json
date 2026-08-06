@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.0",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.0",
-  "notes": "Refreshes the UI hierarchy and strengthens scheduler continuity."
+  "version": "1.2.1",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.1",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.1",
+  "notes": "Keeps signed Docker update commands secure while showing a readable release tag in Settings."
 }

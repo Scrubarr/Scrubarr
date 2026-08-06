@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Made the guided Docker update field show the readable release tag while
+  generated commands continue to use the signed immutable image digest.
+
 ## 1.2.0
 
 - Refreshed the dashboard and supporting pages with clearer hierarchy, less
