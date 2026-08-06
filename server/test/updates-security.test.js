@@ -5,6 +5,7 @@ import { checkForUpdates } from "../src/services/updates.js";
 import { manifestSigningPayload } from "../src/services/update-manifest-security.js";
 
 const manifestUrl = "https://scrubarr.github.io/updates/stable.json";
+const futureVersion = "999.999.999";
 
 function testKeys() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
@@ -50,11 +51,11 @@ test("update checks accept a signed official Scrubarr manifest", async () => {
   const keys = testKeys();
   const manifest = signedManifest(
     {
-      version: "1.1.99",
-      dockerImage: "ghcr.io/scrubarr/scrubarr:v1.1.99",
+      version: futureVersion,
+      dockerImage: `ghcr.io/scrubarr/scrubarr:v${futureVersion}`,
       dockerImageDigest:
         "ghcr.io/scrubarr/scrubarr@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      releaseUrl: "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.1.99",
+      releaseUrl: `https://github.com/Scrubarr/Scrubarr/releases/tag/v${futureVersion}`,
       notes: "Signed test release",
     },
     keys,
@@ -66,7 +67,7 @@ test("update checks accept a signed official Scrubarr manifest", async () => {
   });
 
   assert.equal(result.configured, true);
-  assert.equal(result.latestVersion, "1.1.99");
+  assert.equal(result.latestVersion, futureVersion);
   assert.equal(result.updateAvailable, true);
   assert.equal(result.releaseUrl, manifest.releaseUrl);
   assert.equal(result.notes, "Signed test release");
@@ -80,9 +81,9 @@ test("update checks keep accepting signed legacy manifests during the digest tra
   const keys = testKeys();
   const manifest = signedManifest(
     {
-      version: "1.1.99",
-      dockerImage: "ghcr.io/scrubarr/scrubarr:v1.1.99",
-      releaseUrl: "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.1.99",
+      version: futureVersion,
+      dockerImage: `ghcr.io/scrubarr/scrubarr:v${futureVersion}`,
+      releaseUrl: `https://github.com/Scrubarr/Scrubarr/releases/tag/v${futureVersion}`,
     },
     keys,
   );
