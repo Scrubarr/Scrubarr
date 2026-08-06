@@ -24,9 +24,9 @@ import { useCloseDetailsOnOutsideClick } from "../hooks/useCloseDetailsOnOutside
 import { requestJson } from "../lib/api.js";
 import { mediaServerFromStatus } from "../lib/mediaServerState.js";
 
-function Stat({ label, value, compact = false }) {
+function Stat({ label, value, compact = false, className = "" }) {
   return (
-    <div className="rounded-xl border border-line bg-panel p-5">
+    <div className={`dashboard-stat rounded-xl border p-4 sm:p-5 ${className}`}>
       <div className="text-sm text-neutral-400">{label}</div>
       <div
         className={`mt-2 font-semibold tracking-tight ${
@@ -35,6 +35,18 @@ function Stat({ label, value, compact = false }) {
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+function DashboardNotice({ children, action }) {
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <CircleAlert className="mt-0.5 shrink-0" size={18} />
+        <span>{children}</span>
+      </div>
+      {action}
     </div>
   );
 }
@@ -69,7 +81,7 @@ function LibraryTotalCard({
 
   if (secondary) {
     return (
-      <div className={`rounded-xl border border-line bg-canvas/60 p-4 ${className}`}>
+      <div className={`dashboard-subcard rounded-xl border p-4 ${className}`}>
         <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-5">
           <div className="flex min-w-0 flex-col items-center text-center">
             <LibraryTypeBadge type={type} label={badgeLabel} />
@@ -97,7 +109,7 @@ function LibraryTotalCard({
   }
 
   return (
-    <div className={`rounded-xl border border-line bg-canvas/60 p-4 text-center ${className}`}>
+    <div className={`dashboard-subcard rounded-xl border p-4 text-center ${className}`}>
       <div className="flex flex-wrap items-center justify-center gap-2">
         {isTotal ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1 text-neutral-300">
@@ -298,25 +310,67 @@ function countdownTone(daysRemaining, mode) {
   return "border-line bg-canvas/60 text-neutral-300";
 }
 
-function countdownPanelTone(daysRemaining, mode) {
-  if (mode === "preview") return "border-amber-800/50 bg-amber-950/15 text-amber-100";
-  if (daysRemaining === 0) return "border-red-900/60 bg-red-950/25 text-red-200";
-  return "border-line bg-canvas/60 text-neutral-300";
-}
-
 function storageTone(freePercent) {
   if (freePercent <= 10) return "bg-red-500";
   if (freePercent <= 25) return "bg-amber-400";
   return "bg-emerald-500";
 }
 
-function StorageDisk({ disk }) {
+function storageFreePercent(disk) {
+  return Math.max(100 - Math.min(Math.max(Number(disk.usedPercent || 0), 0), 100), 0);
+}
+
+function StorageDisk({ disk, overview = false }) {
   const usedPercent = Math.min(Math.max(Number(disk.usedPercent || 0), 0), 100);
-  const freePercent = Math.max(100 - usedPercent, 0);
+  const freePercent = storageFreePercent(disk);
   const barTone = storageTone(freePercent);
 
+  if (overview) {
+    return (
+      <div className="dashboard-subcard rounded-xl border px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-neutral-200">
+              <HardDrive size={16} className="shrink-0 text-accent" />
+              <span className="truncate" title={disk.label || disk.root}>
+                {disk.label || disk.root}
+              </span>
+              {!disk.available && (
+                <span className="shrink-0 rounded-full border border-amber-700/50 bg-amber-950/20 px-2 py-0.5 text-[0.7rem] font-medium text-amber-200">
+                  Unavailable
+                </span>
+              )}
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-800">
+              {disk.available && (
+                <div
+                  className={`h-full rounded-full ${barTone}`}
+                  style={{ width: `${usedPercent}%` }}
+                />
+              )}
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            {disk.available ? (
+              <>
+                <div className="text-sm font-semibold text-neutral-100">
+                  {formatBytes(disk.freeBytes)} free
+                </div>
+                <div className="mt-1 text-xs text-neutral-400">{freePercent.toFixed(1)}% free</div>
+              </>
+            ) : (
+              <div className="max-w-44 text-xs leading-5 text-neutral-400">
+                {disk.message || "Storage details are unavailable."}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl border border-line bg-canvas/60 px-4 py-3">
+    <div className="dashboard-subcard rounded-xl border px-4 py-3">
       <div className="grid gap-3 lg:grid-cols-[minmax(9rem,13rem)_1fr_auto] lg:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-neutral-200">
@@ -484,7 +538,7 @@ function PendingDeletionCard({
   const title = item?.Title || item?.title || "Untitled media";
 
   return (
-    <article className="flex min-w-0 gap-4 rounded-xl border border-line bg-panel p-5 sm:gap-5">
+    <article className="dashboard-media-card flex min-w-0 gap-4 rounded-xl border p-5 sm:gap-5">
       <div className="w-28 shrink-0 sm:w-32">
         <MediaPoster
           item={item}
@@ -541,7 +595,6 @@ function PendingDeletionCard({
 
 function PendingCountdownPanel({ summary, scheduler }) {
   const [now, setNow] = useState(() => new Date());
-  const pendingTotal = Number(summary?.pendingTotal || 0);
   const nextEligible = summary?.nextEligible || null;
   const nextDeletionTarget = nextEligible
     ? deletionDateTimeFromEligibleDate(nextEligible.date, scheduler)
@@ -550,8 +603,7 @@ function PendingCountdownPanel({ summary, scheduler }) {
   const preview = mode === "preview";
   const scheduled = scheduler?.enabled === true;
   const visible = !preview && scheduled;
-  const tone = countdownPanelTone(nextEligible?.daysRemaining, mode);
-  const hasPending = pendingTotal > 0 && Boolean(nextEligible);
+  const dueToday = nextEligible?.daysRemaining === 0;
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -561,30 +613,20 @@ function PendingCountdownPanel({ summary, scheduler }) {
 
   if (!visible) return null;
 
-  let detail = "Scrubarr will show the next deletion window once items are pending.";
-
-  if (pendingTotal > 0 && nextEligible) {
-    detail = scheduled
-      ? "Review or exclude pending items before the next live run deletes media."
-      : "Scheduled runs are disabled, so no automatic cleanup run is currently planned.";
-    if (preview) {
-      detail = "Preview only mode is enabled, so this countdown is advisory and media will not be deleted.";
-    }
-  }
-
   return (
     <div
-      className={`mt-4 w-full rounded-xl border p-4 ${
-        hasPending ? "shadow-[0_0_28px_rgba(250,204,21,0.22)] ring-1 ring-accent/30" : ""
-      } ${tone}`}
+      className={`mt-5 ${
+        dueToday
+          ? "rounded-xl border border-red-900/60 bg-red-950/25 p-4 text-red-200"
+          : "border-t border-line/70 pt-4"
+      }`}
     >
       <div className="flex items-start gap-3">
         <CalendarClock className="mt-0.5 shrink-0 text-accent" size={20} />
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-neutral-100">Deletion countdown</h3>
-          <p className="mt-1 text-sm leading-6 text-neutral-400">{detail}</p>
           <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-            <div className="rounded-lg bg-panel/70 p-3">
+            <div className="dashboard-countdown-metric rounded-lg p-3">
               <div className="text-xs text-neutral-400">Next deletion</div>
               <div className="mt-2 text-lg font-semibold leading-snug tracking-tight text-neutral-100">
                 {nextEligible
@@ -592,7 +634,7 @@ function PendingCountdownPanel({ summary, scheduler }) {
                   : "None pending"}
               </div>
             </div>
-            <div className="rounded-lg bg-panel/70 p-3">
+            <div className="dashboard-countdown-metric rounded-lg p-3">
               <div className="text-xs text-neutral-400">Time until deletion occurs</div>
               <div className="mt-2 text-neutral-200">
                 {nextEligible ? (
@@ -606,7 +648,7 @@ function PendingCountdownPanel({ summary, scheduler }) {
                 )}
               </div>
             </div>
-            <div className="rounded-lg bg-panel/70 p-3">
+            <div className="dashboard-countdown-metric rounded-lg p-3">
               <div className="text-xs text-neutral-400">Number of items to delete</div>
               <div className="mt-2 text-2xl font-semibold leading-snug tracking-tight text-neutral-100">
                 {nextEligible?.count || 0}
@@ -621,6 +663,7 @@ function PendingCountdownPanel({ summary, scheduler }) {
 
 export default function Dashboard() {
   const [pending, setPending] = useState([]);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
   const [exclusions, setExclusions] = useState([]);
   const [status, setStatus] = useState(null);
   const [pendingSummary, setPendingSummary] = useState(null);
@@ -638,53 +681,75 @@ export default function Dashboard() {
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const [pendingTypeFilter, setPendingTypeFilter] = useState("all");
   const [pendingSort, setPendingSort] = useState("due");
-
-  async function loadDashboardData() {
+  const [storageView, setStorageView] = useState(() => {
     try {
-      const [
-        pendingItems,
-        pendingSummaryResult,
-        excludedItems,
-        runtimeStatus,
-        logs,
-        statsResult,
-      ] = await Promise.all([
-        requestJson("/api/pending"),
-        requestJson("/api/pending/summary"),
-        requestJson("/api/exclusions"),
-        requestJson("/api/health/status"),
-        requestJson("/api/logs?limit=200"),
-        requestJson("/api/dashboard/stats").then(
-          (value) => ({ ok: true, value }),
-          (requestError) => ({ ok: false, message: requestError.message }),
-        ),
-      ]);
-      setPending(pendingItems);
-      setPendingSummary(pendingSummaryResult);
-      setExclusions(excludedItems);
-      setStatus(runtimeStatus);
-      setRunLog(logs.entries || []);
-      if (statsResult.ok) {
-        setDashboardStats(statsResult.value);
-        setDashboardStatsError("");
-      } else {
-        setDashboardStats(null);
-        setDashboardStatsError(statsResult.message);
-      }
-      setError("");
-      setPendingIntegrity(null);
-      setExclusionIntegrity(null);
+      return window.localStorage.getItem("scrubarr.dashboard.storage-view") === "expanded"
+        ? "expanded"
+        : "overview";
+    } catch {
+      return "overview";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("scrubarr.dashboard.storage-view", storageView);
+    } catch {
+      // Keep the view usable when browser storage is unavailable.
+    }
+  }, [storageView]);
+
+  function loadDashboardData() {
+    setError("");
+    setPendingLoaded(false);
+
+    const reportError = (requestError) => {
+      setError((current) => current || requestError.message);
+    };
+
+    const requests = [
+      requestJson("/api/pending").then(
+        (items) => {
+          setPending(items);
+          setPendingLoaded(true);
+        },
+        (requestError) => {
+          setPending([]);
+          setPendingLoaded(true);
+          reportError(requestError);
+        },
+      ),
+      requestJson("/api/pending/summary").then(
+        setPendingSummary,
+        reportError,
+      ),
+      requestJson("/api/exclusions").then(setExclusions, reportError),
+      requestJson("/api/health/status").then(setStatus, reportError),
+      requestJson("/api/logs?limit=200").then(
+        (logs) => setRunLog(logs.entries || []),
+        reportError,
+      ),
+      requestJson("/api/dashboard/stats").then(
+        (stats) => {
+          setDashboardStats(stats);
+          setDashboardStatsError("");
+        },
+        (requestError) => {
+          setDashboardStats(null);
+          setDashboardStatsError(requestError.message);
+        },
+      ),
       requestJson("/api/pending/integrity").then(
         setPendingIntegrity,
         () => setPendingIntegrity(null),
-      );
+      ),
       requestJson("/api/exclusions/integrity").then(
         setExclusionIntegrity,
         () => setExclusionIntegrity(null),
-      );
-    } catch (requestError) {
-      setError(requestError.message);
-    }
+      ),
+    ];
+
+    return Promise.all(requests);
   }
 
   useEffect(() => {
@@ -694,12 +759,22 @@ export default function Dashboard() {
       window.removeEventListener("scrubarr:data-changed", loadDashboardData);
   }, []);
 
+  const summaryItems = useMemo(
+    () => (Array.isArray(pendingSummary?.items) ? pendingSummary.items : []),
+    [pendingSummary],
+  );
+  const pendingCount = pendingLoaded
+    ? pending.length
+    : pendingSummary?.pendingTotal ?? 0;
   const counts = useMemo(
-    () => ({
-      movies: pending.filter((item) => item.Type === "Movie").length,
-      series: pending.filter((item) => item.Type === "Series").length,
-    }),
-    [pending],
+    () => {
+      const items = pendingLoaded ? pending : summaryItems;
+      return {
+        movies: items.filter((item) => item.Type === "Movie").length,
+        series: items.filter((item) => item.Type === "Series").length,
+      };
+    },
+    [pending, pendingLoaded, summaryItems],
   );
 
   const deletionEntries = useMemo(
@@ -725,6 +800,24 @@ export default function Dashboard() {
   );
   const persistentDeletionCounts = dashboardStats?.deletions?.allTime;
   const allTimeDeletionCounts = persistentDeletionCounts || runLogDeletionCounts;
+  const hasLastDeletionMedia = lastDeletionCounts.total > 0;
+  const hasAllTimeDeletionMedia = allTimeDeletionCounts.total > 0;
+  const storageDisks = useMemo(
+    () => (Array.isArray(dashboardStats?.storage) ? dashboardStats.storage : []),
+    [dashboardStats],
+  );
+  const overviewStorageDisks = useMemo(
+    () =>
+      storageDisks
+        .slice()
+        .sort((left, right) => {
+          if (left.available !== right.available) return left.available ? 1 : -1;
+          return storageFreePercent(left) - storageFreePercent(right);
+        })
+        .slice(0, 3),
+    [storageDisks],
+  );
+  const shownStorageDisks = storageView === "expanded" ? storageDisks : overviewStorageDisks;
   const countdownById = useMemo(() => {
     const entries = Array.isArray(pendingSummary?.items) ? pendingSummary.items : [];
     return new Map(entries.map((item) => [String(item.ItemId), item]));
@@ -816,10 +909,10 @@ export default function Dashboard() {
         detail={<ConfirmMediaDetail item={pendingConfirm?.item} />}
       />
 
-      <section>
+      <section className="dashboard-heading">
         <p className="text-sm font-medium text-accent">Overview</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="mt-2 max-w-2xl text-neutral-400">
+        <h1 className="mt-1 text-3xl font-bold tracking-tight text-neutral-50">Dashboard</h1>
+        <p className="mt-2 text-neutral-400">
           See what Scrubarr is tracking, review pending media, and check the
           next scheduled cleanup.
         </p>
@@ -836,176 +929,208 @@ export default function Dashboard() {
         pendingIntegrity?.staleCount > 0 ||
         exclusionsNeedingReview > 0 ||
         status?.capabilities?.debugLogging) && (
-        <div className="space-y-3">
+        <section className="overflow-hidden rounded-2xl border border-amber-800/60 bg-amber-950/20">
+          <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-amber-100">
+            <CircleAlert size={18} />
+            Needs attention
+          </div>
+          <div className="divide-y divide-amber-800/35 border-t border-amber-800/35">
           {showMediaServerSetup && (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 shrink-0" size={18} />
-                <span>{mediaServerSetupMessage}</span>
-              </div>
-              <a
+            <DashboardNotice
+              action={<a
                 href="/settings"
                 className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
               >
                 Open settings
-              </a>
-            </div>
+              </a>}
+            >
+              {mediaServerSetupMessage}
+            </DashboardNotice>
           )}
           {status?.updates?.updateAvailable && (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 shrink-0" size={18} />
-                <span>New update available.</span>
-              </div>
-              <a
+            <DashboardNotice
+              action={<a
                 href="/settings#updates"
                 className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
               >
                 View update
-              </a>
-            </div>
+              </a>}
+            >
+              New update available.
+            </DashboardNotice>
           )}
           {pendingIntegrity?.staleCount > 0 && (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 shrink-0" size={18} />
-                <span>
-                  {pendingIntegrity.staleCount} pending{" "}
-                  {pendingIntegrity.staleCount === 1 ? "item needs" : "items need"}{" "}
-                  review.
-                </span>
-              </div>
-              <a
+            <DashboardNotice
+              action={<a
                 href="/safety#pending-integrity"
                 className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
               >
                 Review on Safety
-              </a>
-            </div>
+              </a>}
+            >
+              {pendingIntegrity.staleCount} pending{" "}
+              {pendingIntegrity.staleCount === 1 ? "item needs" : "items need"}{" "}
+              review.
+            </DashboardNotice>
           )}
           {exclusionsNeedingReview > 0 && (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 shrink-0" size={18} />
-                <span>
-                  {exclusionsNeedingReview}{" "}
-                  {exclusionsNeedingReview === 1
-                    ? "exclusion needs"
-                    : "exclusions need"}{" "}
-                  review.
-                </span>
-              </div>
-              <a
+            <DashboardNotice
+              action={<a
                 href="/safety#exclusion-integrity"
                 className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
               >
                 Review on Safety
-              </a>
-            </div>
+              </a>}
+            >
+              {exclusionsNeedingReview}{" "}
+              {exclusionsNeedingReview === 1
+                ? "exclusion needs"
+                : "exclusions need"}{" "}
+              review.
+            </DashboardNotice>
           )}
           {status?.capabilities?.debugLogging && (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100">
-              <CircleAlert className="mt-0.5 shrink-0" size={18} />
-              <span>
-                Debug logging is turned on for troubleshooting logs. Please disable it
-                in Settings when no longer required.
-              </span>
-            </div>
+            <DashboardNotice>
+              Debug logging is turned on for troubleshooting logs. Please disable it
+              in Settings when no longer required.
+            </DashboardNotice>
           )}
-        </div>
+          </div>
+        </section>
       )}
       <section className="space-y-4">
         <div>
           <div className="flex items-center gap-2">
             <BarChart3 className="text-accent" size={21} />
-            <h2 className="text-xl font-semibold">Library status</h2>
+            <h2 className="text-xl font-semibold">Queue overview</h2>
           </div>
           <p className="mt-1 text-sm text-neutral-400">
-            Current queue and protection totals
+            What needs attention before the next cleanup run.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Pending items" value={pending.length} />
-          <Stat label="Pending movies" value={counts.movies} />
-          <Stat label="Pending series" value={counts.series} />
-          <Stat label="Exclusions" value={exclusions.length} />
+        <div className="dashboard-queue-overview rounded-2xl border p-5 sm:p-6">
+          <div className="dashboard-queue-overview-primary">
+          <div>
+            <p className="text-sm font-medium text-neutral-300">Pending deletions</p>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-4xl font-semibold tracking-tight text-neutral-50">
+                {pendingCount}
+              </span>
+              <span className="text-sm text-neutral-400">
+                {pendingCount === 1 ? "item needs review" : "items need review"}
+              </span>
+            </div>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-neutral-400">
+              Remove items you no longer want queued, or add exclusions to protect them from future scans.
+            </p>
+            <a
+              href="#pending-deletions"
+              className="mt-4 inline-flex min-h-10 items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-yellow-300"
+            >
+              Review pending media
+            </a>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="Movies" value={counts.movies} compact className="text-center" />
+            <Stat label="Series" value={counts.series} compact className="text-center" />
+            <Stat label="Exclusions" value={exclusions.length} compact className="text-center" />
+          </div>
+          </div>
+          <PendingCountdownPanel
+            summary={pendingSummary}
+            scheduler={status?.scheduler}
+          />
         </div>
+      </section>
 
-        <div className="rounded-xl border border-line bg-panel p-5">
+      <section className="dashboard-panel rounded-2xl border p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <History className="text-accent" size={20} />
             <h3 className="text-lg font-semibold">Scrubarr activity</h3>
           </div>
           <p className="mt-1 text-sm text-neutral-400">
-            Last run, next run, deletion countdown, and deletion totals.
+            Run schedule and deletion history.
           </p>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <Stat
-              label="Last run"
-              value={formatDate(status?.scheduler?.lastRun?.completedAt, status?.timezone)}
-              compact
-            />
-            <Stat
-              label="Next run"
-              value={formatDate(status?.scheduler?.nextRun, status?.timezone)}
-              compact
-            />
+            <div className="dashboard-subcard rounded-xl border p-4">
+              <div className="text-sm text-neutral-400">Last run</div>
+              <div className="mt-2 text-lg font-semibold leading-snug tracking-tight text-neutral-100">
+                {formatDate(status?.scheduler?.lastRun?.completedAt, status?.timezone)}
+              </div>
+            </div>
+            <div className="dashboard-subcard rounded-xl border p-4">
+              <div className="text-sm text-neutral-400">Next run</div>
+              <div className="mt-2 text-lg font-semibold leading-snug tracking-tight text-neutral-100">
+                {formatDate(status?.scheduler?.nextRun, status?.timezone)}
+              </div>
+            </div>
           </div>
 
-          <PendingCountdownPanel
-            summary={pendingSummary}
-            scheduler={status?.scheduler}
-        />
-
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-line bg-canvas/60 p-4">
+            <div className="dashboard-subcard rounded-xl border p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-neutral-200">
                 <CalendarClock size={16} className="text-accent" />
                 Media removed during last deletion
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{lastDeletionCounts.movies}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Movies</div>
-                </div>
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{lastDeletionCounts.series}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Series</div>
-                </div>
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{lastDeletionCounts.total}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Total</div>
-                </div>
-              </div>
-              <DeletedMediaList entry={lastDeletion} />
+              {hasLastDeletionMedia ? (
+                <>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div className="dashboard-stat rounded-lg border p-3">
+                      <div className="text-2xl font-semibold">{lastDeletionCounts.movies}</div>
+                      <div className="mt-1 text-xs text-neutral-400">Movies</div>
+                    </div>
+                    <div className="dashboard-stat rounded-lg border p-3">
+                      <div className="text-2xl font-semibold">{lastDeletionCounts.series}</div>
+                      <div className="mt-1 text-xs text-neutral-400">Series</div>
+                    </div>
+                    <div className="dashboard-stat rounded-lg border p-3">
+                      <div className="text-2xl font-semibold">{lastDeletionCounts.total}</div>
+                      <div className="mt-1 text-xs text-neutral-400">Total</div>
+                    </div>
+                  </div>
+                  <DeletedMediaList entry={lastDeletion} />
+                </>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-neutral-400">
+                  {lastDeletion
+                    ? "No media was removed during the last deletion run."
+                    : "No deletion run has been recorded yet."}
+                </p>
+              )}
             </div>
 
-            <div className="rounded-xl border border-line bg-canvas/60 p-4">
+            <div className="dashboard-subcard rounded-xl border p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-neutral-200">
                 <Globe2 size={16} className="text-accent" />
                 All-time Scrubarr deletions
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{allTimeDeletionCounts.movies}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Movies</div>
+              {hasAllTimeDeletionMedia ? (
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                  <div className="dashboard-stat rounded-lg border p-3">
+                    <div className="text-2xl font-semibold">{allTimeDeletionCounts.movies}</div>
+                    <div className="mt-1 text-xs text-neutral-400">Movies</div>
+                  </div>
+                  <div className="dashboard-stat rounded-lg border p-3">
+                    <div className="text-2xl font-semibold">{allTimeDeletionCounts.series}</div>
+                    <div className="mt-1 text-xs text-neutral-400">Series</div>
+                  </div>
+                  <div className="dashboard-stat rounded-lg border p-3">
+                    <div className="text-2xl font-semibold">{allTimeDeletionCounts.total}</div>
+                    <div className="mt-1 text-xs text-neutral-400">Total</div>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{allTimeDeletionCounts.series}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Series</div>
-                </div>
-                <div className="rounded-lg bg-panel p-3">
-                  <div className="text-2xl font-semibold">{allTimeDeletionCounts.total}</div>
-                  <div className="mt-1 text-xs text-neutral-400">Total</div>
-                </div>
-              </div>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-neutral-400">
+                  No Scrubarr deletions have been recorded yet.
+                </p>
+              )}
             </div>
           </div>
-        </div>
+      </section>
 
         {mediaServerLocked && (
-        <div className="rounded-xl border border-line bg-panel p-5">
+        <section className="dashboard-panel rounded-2xl border p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <Server className="text-accent" size={20} />
             <h3 className="text-lg font-semibold">{mediaServerLabel} library totals</h3>
@@ -1046,19 +1171,36 @@ export default function Dashboard() {
               />
             </div>
           )}
-        </div>
+        </section>
         )}
 
         {dashboardStats?.storageEnabled && (
-          <div className="rounded-xl border border-line bg-panel p-5">
-            <div className="flex items-center gap-2">
-              <HardDrive className="text-accent" size={20} />
-              <h3 className="text-lg font-semibold">Server storage space</h3>
+          <section className="dashboard-panel rounded-2xl border p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <HardDrive className="text-accent" size={20} />
+                  <h3 className="text-lg font-semibold">Server storage space</h3>
+                </div>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Media drives reported by Radarr/Sonarr and matched to {mediaServerLabel} library
+                  paths.
+                </p>
+              </div>
+              {storageDisks.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStorageView((view) => (view === "expanded" ? "overview" : "expanded"))
+                  }
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-line px-3 py-2 text-sm font-medium text-neutral-200 transition hover:border-accent hover:text-accent"
+                >
+                  {storageView === "expanded"
+                    ? "Show overview"
+                    : `Show all ${storageDisks.length} drives`}
+                </button>
+              )}
             </div>
-            <p className="mt-1 text-sm text-neutral-400">
-              Media drives reported by Radarr/Sonarr and matched to {mediaServerLabel} library
-              paths.
-            </p>
             {dashboardStatsError ? (
               <StatePanel tone="error">{dashboardStatsError}</StatePanel>
             ) : (
@@ -1068,10 +1210,14 @@ export default function Dashboard() {
                     {dashboardStats.storageWarnings.join(" ")}
                   </div>
                 )}
-                {dashboardStats?.storage?.length > 0 ? (
+                {storageDisks.length > 0 ? (
                   <div className="mt-4 space-y-2">
-                    {dashboardStats.storage.map((disk) => (
-                      <StorageDisk key={disk.root} disk={disk} />
+                    {shownStorageDisks.map((disk) => (
+                      <StorageDisk
+                        key={disk.root}
+                        disk={disk}
+                        overview={storageDisks.length > 3 && storageView !== "expanded"}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -1079,13 +1225,16 @@ export default function Dashboard() {
                     No Arr storage paths match the media paths reported by {mediaServerLabel} yet.
                   </StatePanel>
                 )}
+                {storageView !== "expanded" && storageDisks.length > shownStorageDisks.length && (
+                  <p className="mt-3 text-xs text-neutral-400">
+                    Showing the {shownStorageDisks.length} drives with the least free space.
+                  </p>
+                )}
               </>
             )}
-          </div>
+          </section>
         )}
-      </section>
-
-      <section>
+      <section id="pending-deletions" className="scroll-mt-24">
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -1093,10 +1242,10 @@ export default function Dashboard() {
               <h2 className="text-xl font-semibold">Pending deletions</h2>
             </div>
             <p className="text-sm text-neutral-400">
-              Remove items or protect them with an exclusion
+              Review queued items or protect them with an exclusion.
             </p>
           </div>
-          {pending.length > 0 && (
+          {pendingLoaded && pending.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-3">
               <label className="min-w-0 text-xs font-medium text-neutral-400 sm:w-36">
                 Filter
@@ -1119,7 +1268,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        {pending.length === 0 ? (
+        {!pendingLoaded ? (
+          <StatePanel>Loading pending items...</StatePanel>
+        ) : pending.length === 0 ? (
           <StatePanel>
             Nothing is currently waiting for deletion.
           </StatePanel>

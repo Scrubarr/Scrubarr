@@ -118,6 +118,31 @@ export function nextScheduledRun(config, timezone, from = new Date()) {
   throw new Error("Unable to calculate the next scheduled run");
 }
 
+export function nextPendingScheduledRun(
+  config,
+  timezone,
+  { from = new Date(), lastScheduledDate = null } = {},
+) {
+  let nextRun = nextScheduledRun(config, timezone, from);
+
+  // A completed run can finish shortly before its configured minute. In that
+  // case, nextScheduledRun can still find the same date. Never arm a second
+  // callback for a date already recorded as complete.
+  if (
+    nextRun &&
+    lastScheduledDate &&
+    scheduledDateKey(nextRun, timezone) === lastScheduledDate
+  ) {
+    nextRun = nextScheduledRun(
+      config,
+      timezone,
+      new Date(nextRun.getTime() + 60_000),
+    );
+  }
+
+  return nextRun;
+}
+
 function librarySyncSummary(result) {
   if (!result) return null;
   return {
@@ -201,6 +226,7 @@ export class SchedulerService {
     this.arrTagging = arrTagging || (async () => null);
     this.pendingMutations = pendingMutations;
     this.timer = null;
+    this.nextRun = null;
     this.scheduleGeneration = 0;
     this.activeScheduledDate = null;
     this.state = {
@@ -227,18 +253,14 @@ export class SchedulerService {
     this.scheduleGeneration += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.nextRun = null;
   }
 
   status() {
-    const nextRun = nextScheduledRun(
-      this.state.config,
-      this.timezone,
-      new Date(),
-    );
     return {
       ...structuredClone(this.state),
       timezone: this.timezone,
-      nextRun: nextRun?.toISOString() || null,
+      nextRun: this.nextRun?.toISOString() || null,
       running: this.scanCoordinator.isBusy(),
       mode: "preview",
     };
@@ -260,11 +282,11 @@ export class SchedulerService {
   }
 
   async runNow({ scheduledDate = null } = {}) {
-    if (
-      scheduledDate &&
-      (this.activeScheduledDate === scheduledDate ||
-        this.state.lastScheduledDate === scheduledDate)
-    ) {
+    if (scheduledDate && this.state.lastScheduledDate === scheduledDate) {
+      this.scheduleTimer();
+      return this.state.lastRun;
+    }
+    if (scheduledDate && this.activeScheduledDate === scheduledDate) {
       return this.state.lastRun;
     }
 
@@ -378,12 +400,15 @@ export class SchedulerService {
   scheduleTimer() {
     this.stop();
     const scheduleGeneration = this.scheduleGeneration;
-    const nextRun = nextScheduledRun(
+    const nextRun = nextPendingScheduledRun(
       this.state.config,
       this.timezone,
-      new Date(),
+      {
+        lastScheduledDate: this.state.lastScheduledDate,
+      },
     );
     if (!nextRun) return;
+    this.nextRun = nextRun;
     const configKey = scheduleConfigKey(this.state.config);
     const scheduledDate = scheduledDateKey(nextRun, this.timezone);
     const delay = Math.min(nextRun.getTime() - Date.now(), 2_147_000_000);

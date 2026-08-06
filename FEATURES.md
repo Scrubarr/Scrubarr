@@ -217,5 +217,6 @@ Each Scrubarr install is locked to one media server provider:
 - Emby
 - Jellyfin
 
-Emby is the most tested path. Jellyfin support is available but should be
-treated as beta until you confirm it works in your own setup.
+Emby has the longer production history. Jellyfin has also completed end-to-end
+cleanup testing. For either provider, use Preview only mode and verify the
+Leaving Soon libraries before enabling live deletion.

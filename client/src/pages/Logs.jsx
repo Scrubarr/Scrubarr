@@ -34,9 +34,13 @@ function fileNameFromDisposition(disposition, fallback) {
   return match?.[1] || fallback;
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, compact = false }) {
   return (
-    <div className="rounded-lg bg-canvas/70 px-3 py-2">
+    <div
+      className={
+        compact ? "min-w-0 bg-panel px-4 py-3" : "rounded-lg bg-canvas/70 px-3 py-2"
+      }
+    >
       <p className="text-xs text-neutral-400">{label}</p>
       <p className="mt-1 font-semibold">{value}</p>
     </div>
@@ -404,12 +408,12 @@ export default function Logs() {
             one place.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 rounded-xl border border-line bg-panel/70 p-2">
           <button
             type="button"
             onClick={() => toggleFileView("run")}
             disabled={fileState.state === "loading"}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-canvas/70 px-3 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
           >
             {fileState.state === "loading" ? (
               <LoaderCircle className="animate-spin" size={16} />
@@ -422,7 +426,7 @@ export default function Logs() {
             type="button"
             onClick={() => toggleFileView("app")}
             disabled={fileState.state === "loading"}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-canvas/70 px-3 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
           >
             {fileState.state === "loading" ? (
               <LoaderCircle className="animate-spin" size={16} />
@@ -435,7 +439,7 @@ export default function Logs() {
             type="button"
             onClick={exportLogs}
             disabled={exportState.state === "loading"}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-yellow-300 disabled:opacity-60"
           >
             {exportState.state === "loading" ? (
               <LoaderCircle className="animate-spin" size={16} />
@@ -448,7 +452,7 @@ export default function Logs() {
             type="button"
             onClick={load}
             disabled={state.state === "loading"}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-canvas/70 px-3 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500 disabled:opacity-60"
           >
             {state.state === "loading" ? (
               <LoaderCircle className="animate-spin" size={16} />
@@ -549,12 +553,22 @@ export default function Logs() {
         </section>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Logged runs" value={totals.runs} />
-        <Stat label="Failures" value={totals.failures} />
-        <Stat label="Candidates seen" value={totals.candidates} />
-        <Stat label="Warnings" value={totals.warnings} />
-      </div>
+      <section className="overflow-hidden rounded-xl border border-line bg-line">
+        <div className="border-b border-line bg-panel px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent/90">
+            Recent activity
+          </p>
+          <p className="mt-1 text-sm text-neutral-400">
+            A quick count of the runs currently retained below.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-line lg:grid-cols-4">
+          <Stat compact label="Logged runs" value={totals.runs} />
+          <Stat compact label="Failures" value={totals.failures} />
+          <Stat compact label="Candidates seen" value={totals.candidates} />
+          <Stat compact label="Warnings" value={totals.warnings} />
+        </div>
+      </section>
 
       {entries.length === 0 ? (
         <StatePanel>
@@ -562,7 +576,15 @@ export default function Logs() {
           your libraries.
         </StatePanel>
       ) : (
-        <div className="space-y-3">
+        <section className="space-y-3">
+          <div className="px-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent/90">
+              Run history
+            </p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">
+              Recent runs
+            </h2>
+          </div>
           {entries.map((entry) => {
             const failed = entry.status === "failed";
             const partial = entry.status === "partial";
@@ -572,7 +594,7 @@ export default function Logs() {
             return (
               <article
                 key={entry.id}
-                className="rounded-xl border border-line bg-panel p-5"
+                className="rounded-xl border border-line bg-panel p-4 sm:p-5"
               >
                 <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
                   <div>
@@ -667,7 +689,7 @@ export default function Logs() {
               </article>
             );
           })}
-        </div>
+        </section>
       )}
     </div>
   );

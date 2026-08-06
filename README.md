@@ -12,13 +12,17 @@ old media is removed.
 
 ## Screenshots
 
-| Dashboard | Cleanup rules |
+| Dashboard | Pending deletions |
 | --- | --- |
-| <img src="docs/screenshots/dashboard.png" alt="Scrubarr dashboard" width="420" /> | <img src="docs/screenshots/cleanup-rules.png" alt="Scrubarr cleanup rules" width="420" /> |
+| <img src="docs/screenshots/dashboard.png" alt="Scrubarr dashboard" width="420" /> | <img src="docs/screenshots/pending-deletions.png" alt="Scrubarr pending deletions" width="420" /> |
 
-| Exclusions | Safety |
+| Cleanup rules | Exclusions |
 | --- | --- |
-| <img src="docs/screenshots/exclusions.png" alt="Scrubarr exclusions" width="420" /> | <img src="docs/screenshots/safety.png" alt="Scrubarr safety page" width="420" /> |
+| <img src="docs/screenshots/cleanup-rules.png" alt="Scrubarr cleanup rules" width="420" /> | <img src="docs/screenshots/exclusions.png" alt="Scrubarr exclusions" width="420" /> |
+
+### Safety
+
+<img src="docs/screenshots/safety.png" alt="Scrubarr safety page" width="860" />
 
 ## What It Does
 
@@ -38,10 +42,9 @@ See [FEATURES.md](FEATURES.md) for a plain-English explanation of each area.
 
 ## Status
 
-Scrubarr is early release software.
-
-Emby is the primary tested media-server path. Jellyfin support is available, but
-you should test it carefully in your own setup before relying on live deletion.
+Scrubarr is released for regular personal use. Emby and Jellyfin are supported;
+Emby has the longer production history, while Jellyfin has completed
+end-to-end cleanup testing.
 
 Always start with **Preview only mode** enabled. Review preview results, pending
 items, Leaving Soon libraries, logs, and Telegram messages before allowing live

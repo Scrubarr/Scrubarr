@@ -2,11 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Bell,
-  CalendarClock,
   CheckCircle2,
-  Clock3,
   ClipboardList,
-  Database,
   LoaderCircle,
   ShieldAlert,
   ShieldCheck,
@@ -25,14 +22,6 @@ function displayDate(value, timezone) {
     timeStyle: "short",
     timeZone: timezone,
   }).format(new Date(value));
-}
-
-function displayDateOnly(value) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
-  if (!match) return "Not scheduled";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-    new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
-  );
 }
 
 function plural(value, singular, pluralValue = `${singular}s`) {
@@ -61,25 +50,6 @@ function StatusPill({ tone, children }) {
     <span className={`rounded-full border px-2.5 py-1 text-xs ${classes[tone]}`}>
       {children}
     </span>
-  );
-}
-
-function SummaryCard({ icon, label, value, detail, tone = "neutral" }) {
-  const border = {
-    safe: "border-emerald-900/50",
-    warning: "border-amber-900/50",
-    danger: "border-red-900/60",
-    neutral: "border-line",
-  }[tone];
-  return (
-    <article className={`rounded-xl border ${border} bg-panel p-5`}>
-      <div className="flex items-center gap-2 text-sm text-neutral-400">
-        {icon}
-        {label}
-      </div>
-      <p className="mt-2 text-xl font-semibold">{value}</p>
-      {detail && <p className="mt-1 text-xs leading-5 text-neutral-400">{detail}</p>}
-    </article>
   );
 }
 
@@ -141,6 +111,29 @@ function IntegrityIssueList({ issues }) {
   );
 }
 
+function IntegrityWarnings({ warnings }) {
+  if (!warnings?.length) return null;
+
+  return (
+    <div className="border-t border-amber-800/60 bg-amber-950/20 px-5 py-4 text-sm leading-6 text-amber-100">
+      <div className="flex gap-3">
+        <AlertTriangle className="mt-0.5 shrink-0 text-amber-300" size={18} />
+        <div>
+          <p className="font-medium">Checks skipped</p>
+          <ul className="mt-2 space-y-1 text-amber-100/85">
+            {warnings.map((warning) => (
+              <li key={warning} className="flex gap-2">
+                <span className="text-amber-300">-</span>
+                <span>{warning}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function arrReady(arr) {
   return Boolean(arr?.Url) && configuredSecret(arr?.ApiKeyConfigured);
 }
@@ -198,8 +191,6 @@ export default function Safety() {
         health,
         scheduler,
         pending,
-        pendingSummary,
-        exclusions,
         pendingIntegrity,
         exclusionIntegrity,
         mediaServerStats,
@@ -208,8 +199,6 @@ export default function Safety() {
         requestJson("/api/health/status"),
         requestJson("/api/scheduler"),
         requestJson("/api/pending"),
-        requestJson("/api/pending/summary"),
-        requestJson("/api/exclusions"),
         requestJson("/api/pending/integrity"),
         requestJson("/api/exclusions/integrity"),
         requestJson("/api/dashboard/stats").then(
@@ -222,8 +211,6 @@ export default function Safety() {
         health,
         scheduler,
         pending,
-        pendingSummary,
-        exclusions,
         pendingIntegrity,
         exclusionIntegrity,
         mediaServerStats,
@@ -245,8 +232,6 @@ export default function Safety() {
       health,
       scheduler,
       pending,
-      pendingSummary,
-      exclusions,
       pendingIntegrity,
       exclusionIntegrity,
       mediaServerStats,
@@ -264,7 +249,6 @@ export default function Safety() {
       configuredSecret(settings.Telegram.BotTokenConfigured) &&
       Boolean(settings.Telegram.ChatID);
     const pendingCount = Array.isArray(pending) ? pending.length : 0;
-    const exclusionCount = Array.isArray(exclusions) ? exclusions.length : 0;
     const mediaServerSelected = mediaServer.selected;
     const mediaServerConfigured = mediaServer.configured;
     const mediaServerConnectionError =
@@ -313,11 +297,8 @@ export default function Safety() {
       radarrConfigured,
       sonarrConfigured,
       pendingCount,
-      exclusionCount,
       libraries,
       liveDeletionRisk,
-      nextEligible: pendingSummary?.nextEligible || null,
-      pendingSummary,
       pendingIntegrity,
       exclusionIntegrity,
       blockers,
@@ -428,8 +409,8 @@ export default function Safety() {
           <p className="text-sm font-medium text-accent">Safety check</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Safety</h1>
           <p className="mt-2 max-w-3xl text-neutral-400">
-            A quick status check for scheduling, notifications, pending items,
-            and deletion-related settings.
+            Review the safeguards, connected services, and automation settings
+            that affect scheduled cleanup.
           </p>
         </div>
         <button
@@ -503,55 +484,6 @@ export default function Safety() {
         </div>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
-          icon={<ShieldCheck size={17} />}
-          label="Run mode"
-          value={summary.dryRun ? "Preview only mode" : "Live mode"}
-          detail={
-            summary.dryRun
-              ? "Scans and queues only; media will not be deleted."
-              : summary.pendingCount > 0
-                ? "Pending items can be deleted after their review window."
-                : "Cleanup is active; no pending items are waiting."
-          }
-          tone={summary.liveDeletionRisk ? "warning" : summary.dryRun ? "safe" : "neutral"}
-        />
-        <SummaryCard
-          icon={<CalendarClock size={17} />}
-          label="Scheduler"
-          value={summary.schedulerEnabled ? "Enabled" : "Disabled"}
-          detail={`Next run: ${displayDate(scheduler.nextRun, summary.timezone)}`}
-          tone={summary.schedulerEnabled ? "neutral" : "safe"}
-        />
-        <SummaryCard
-          icon={<Database size={17} />}
-          label="Pending review"
-          value={`${summary.pendingCount} ${plural(summary.pendingCount, "item")}`}
-          detail={
-            summary.nextEligible
-              ? `${
-                  summary.dryRun ? "Next review date" : "Next deletion date"
-                }: ${displayDateOnly(summary.nextEligible.date)}`
-              : `${summary.exclusionCount} exclusions protected`
-          }
-          tone={summary.liveDeletionRisk ? "warning" : summary.pendingCount > 0 ? "neutral" : "safe"}
-        />
-        <SummaryCard
-          icon={<Clock3 size={17} />}
-          label="Last run"
-          value={displayDate(scheduler.lastRun?.completedAt, summary.timezone)}
-          detail={lastRunDetail(scheduler.lastRun)}
-          tone={
-            scheduler.lastRun?.status === "failed"
-              ? "danger"
-              : scheduler.lastRun?.status === "partial"
-                ? "warning"
-                : "neutral"
-          }
-        />
-      </div>
-
       {summary.pendingIntegrity?.staleCount > 0 && (
         <section
           id="pending-integrity"
@@ -622,16 +554,7 @@ export default function Safety() {
               {plural(summary.pendingIntegrity.items.length - 8, "item")}.
             </p>
           )}
-          {summary.pendingIntegrity.warnings.length > 0 && (
-            <div className="border-t border-line px-5 py-4 text-sm leading-6 text-neutral-400">
-              <p className="font-medium text-neutral-300">Checks skipped</p>
-              <ul className="mt-2 space-y-1">
-                {summary.pendingIntegrity.warnings.map((warning) => (
-                  <li key={warning}>- {warning}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <IntegrityWarnings warnings={summary.pendingIntegrity.warnings} />
         </section>
       )}
 
@@ -745,16 +668,7 @@ export default function Safety() {
               )}
             </div>
           )}
-          {summary.exclusionIntegrity.warnings.length > 0 && (
-            <div className="border-t border-line px-5 py-4 text-sm leading-6 text-neutral-400">
-              <p className="font-medium text-neutral-300">Checks skipped</p>
-              <ul className="mt-2 space-y-1">
-                {summary.exclusionIntegrity.warnings.map((warning) => (
-                  <li key={warning}>- {warning}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <IntegrityWarnings warnings={summary.exclusionIntegrity.warnings} />
         </section>
       )}
 
@@ -833,6 +747,17 @@ export default function Safety() {
               ? "A scheduled run is currently active."
               : "No scheduled run is currently active."
           }
+        />
+        <ChecklistItem
+          status={
+            scheduler.lastRun?.status === "failed"
+              ? "danger"
+              : scheduler.lastRun?.status === "partial"
+                ? "warning"
+                : "neutral"
+          }
+          label="Last scheduled run"
+          detail={`${displayDate(scheduler.lastRun?.completedAt, summary.timezone)}. ${lastRunDetail(scheduler.lastRun)}`}
         />
         <ChecklistItem
           status={

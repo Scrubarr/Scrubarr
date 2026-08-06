@@ -51,6 +51,9 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: checks
+    permissions:
+      contents: write
+      packages: write
     if: >-
       github.event_name == 'push' &&
       (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/rc-v'))
@@ -114,3 +117,17 @@ jobs:
             echo
             echo "Use this digest when signing the official update manifest after a final release."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub release
+        if: steps.image.outputs.kind == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "Scrubarr $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

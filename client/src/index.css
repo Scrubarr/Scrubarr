@@ -68,6 +68,57 @@ button[class*="border-line"]:not([class*="bg-accent"]):not([class*="bg-red"]):no
   display: none;
 }
 
+/* Dashboard visual hierarchy: reserve raised surfaces for decisions and actions. */
+.dashboard-heading {
+  max-width: 44rem;
+}
+
+.dashboard-panel {
+  border-color: rgb(86 96 112 / 0.82);
+  background: linear-gradient(145deg, rgb(54 62 75 / 0.86), rgb(48 55 67 / 0.82));
+}
+
+.dashboard-stat {
+  border-color: rgb(86 96 112 / 0.66);
+  background: rgb(32 36 43 / 0.34);
+}
+
+.dashboard-queue-overview {
+  border-color: rgb(245 197 66 / 0.42);
+  background:
+    radial-gradient(circle at 100% 0%, rgb(245 197 66 / 0.12), transparent 38%),
+    rgb(43 50 61 / 0.9);
+}
+
+.dashboard-queue-overview-primary {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.dashboard-subcard {
+  border-color: rgb(86 96 112 / 0.66);
+  background: rgb(32 36 43 / 0.38);
+}
+
+.dashboard-countdown-metric {
+  border: 1px solid rgb(86 96 112 / 0.58);
+  background: rgb(32 36 43 / 0.44);
+}
+
+.dashboard-media-card {
+  border-color: rgb(86 96 112 / 0.76);
+  background: rgb(52 59 71 / 0.82);
+}
+
+@media (min-width: 1024px) {
+  .dashboard-queue-overview-primary {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(22rem, 0.85fr);
+    align-items: center;
+    gap: 1.5rem;
+  }
+}
+
 @media (min-width: 1024px) {
   .desktop-sidebar {
     display: block;

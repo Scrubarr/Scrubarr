@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+
+- Refreshed the dashboard and supporting pages with clearer hierarchy, less
+  visual clutter, more useful empty states, and faster progressive loading.
+- Improved Pending deletions, activity, storage, media totals, Settings,
+  Scheduler, Logs, and Safety layouts across desktop and mobile.
+- Kept the scheduler armed after a completed or late duplicate callback while
+  continuing to enforce one scheduled run per configured date.
+- Fixed touch tooltips closing immediately after they were opened.
+
 ## 1.1.5
 
 - Prevented stale scheduler timers from running after a schedule change or

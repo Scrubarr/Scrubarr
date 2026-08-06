@@ -232,31 +232,38 @@ function CleanupRuleSummary({ summary, error }) {
   const movieRules = summary?.movies || ["Loading rule summary..."];
   const seriesRules = summary?.series || ["Loading rule summary..."];
   const arrWarnings = summary?.warnings || [];
+  const [movieEligibility, ...movieDetails] = movieRules;
+  const [seriesEligibility, ...seriesDetails] = seriesRules;
 
   return (
-    <div className="md:col-span-2 rounded-xl border border-yellow-700/40 bg-yellow-950/10 p-4">
-      <p className="text-sm font-semibold text-amber-200">Rule summary</p>
+    <div className="rounded-xl border border-yellow-700/40 bg-yellow-950/10 p-4">
       {error && (
         <p className="mt-2 rounded-lg border border-red-900/60 bg-red-950/30 p-3 text-sm text-red-200">
           {error}
         </p>
       )}
-      <div className="mt-3 grid gap-3 text-sm text-neutral-300 md:grid-cols-2">
-        <div className="rounded-lg border border-line bg-canvas/70 p-3">
+      <div className="grid gap-5 text-sm text-neutral-300 md:grid-cols-2 md:divide-x md:divide-line">
+        <div className="min-w-0 md:pr-5">
           <MediaTypeBadge type="Movie" />
-          <ul className="mt-2 list-disc space-y-1.5 pl-5">
-            {movieRules.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
+          <p className="mt-3 leading-6 text-neutral-100">{movieEligibility}</p>
+          {movieDetails.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-neutral-400">
+              {movieDetails.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+          )}
         </div>
-        <div className="rounded-lg border border-line bg-canvas/70 p-3">
+        <div className="min-w-0 md:pl-5">
           <MediaTypeBadge type="Series" />
-          <ul className="mt-2 list-disc space-y-1.5 pl-5">
-            {seriesRules.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
+          <p className="mt-3 leading-6 text-neutral-100">{seriesEligibility}</p>
+          {seriesDetails.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-neutral-400">
+              {seriesDetails.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
       {arrWarnings.length > 0 && (
@@ -276,7 +283,7 @@ function CleanupRuleSummary({ summary, error }) {
 function PreviewModeExplanation({ enabled }) {
   return (
     <div
-      className={`rounded-xl border p-4 text-sm leading-6 md:col-span-3 ${
+      className={`rounded-xl border p-4 text-sm leading-6 ${
         enabled
           ? "border-emerald-900/50 bg-emerald-950/20 text-emerald-100"
           : "border-amber-800/60 bg-amber-950/20 text-amber-100"
@@ -305,7 +312,7 @@ function QueueLimitWarning({ movieLimit, seriesLimit, providerLabel }) {
   if (highSeries) parts.push(`${seriesLimit} series`);
 
   return (
-    <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100 md:col-span-3">
+    <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100">
       <p className="font-semibold">High queue limit</p>
       <p className="mt-1">
         Scrubarr can add up to {parts.join(" and ")} per run. That can make the
@@ -328,7 +335,7 @@ function ModeSelect({ value, onChange }) {
 
 function ReleaseYearRange({ filterPath, filters, set, fieldError }) {
   return (
-    <div className="grid min-w-0 gap-3 sm:col-span-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,14rem)] sm:justify-start xl:col-span-2">
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2 sm:gap-4">
       <Field
         label="Release year from"
         help="Optional filter. When set, Scrubarr only considers this media type from this year or later."
@@ -338,7 +345,7 @@ function ReleaseYearRange({ filterPath, filters, set, fieldError }) {
           value={filters.YearFrom}
           minimum={1800}
           placeholder="Any"
-          className="max-w-56"
+          className="w-full"
           onChange={(value) => set(`${filterPath}.YearFrom`, value)}
         />
       </Field>
@@ -351,7 +358,7 @@ function ReleaseYearRange({ filterPath, filters, set, fieldError }) {
           value={filters.YearTo}
           minimum={1800}
           placeholder="Any"
-          className="max-w-56"
+          className="w-full"
           onChange={(value) => set(`${filterPath}.YearTo`, value)}
         />
       </Field>
@@ -371,7 +378,6 @@ function MediaFilterSection({
   loadGenres,
   fieldError,
   providerLabel,
-  children,
 }) {
   const filters = filterPath.split(".").reduce((current, key) => current[key], settings);
 
@@ -380,52 +386,52 @@ function MediaFilterSection({
       title={title}
       description={description}
       icon={<ShieldCheck size={19} />}
-      contentClassName="grid min-w-0 gap-4 p-5 sm:grid-cols-2 xl:grid-cols-4"
+      contentClassName="space-y-5 p-5"
     >
-      <Field
-        label="Mode"
-        help="Choose whether this media type considers watched items, never watched items, or both."
-        className="sm:col-span-2 xl:col-span-2"
-        error={fieldError(modePath)}
-      >
-        <ModeSelect
-          value={modePath.split(".").reduce((current, key) => current[key], settings)}
-          onChange={(value) => set(modePath, value)}
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:items-end">
+        <Field
+          label="Mode"
+          help="Choose whether this media type considers watched items, never watched items, or both."
+          error={fieldError(modePath)}
+        >
+          <ModeSelect
+            value={modePath.split(".").reduce((current, key) => current[key], settings)}
+            onChange={(value) => set(modePath, value)}
+          />
+        </Field>
+        <ReleaseYearRange
+          filterPath={filterPath}
+          filters={filters}
+          set={set}
+          fieldError={fieldError}
         />
-      </Field>
-      <ReleaseYearRange
-        filterPath={filterPath}
-        filters={filters}
-        set={set}
-        fieldError={fieldError}
-      />
-      <GenrePicker
-        label="Include genres"
-        help={`Optional filter. When set, Scrubarr only considers this media type when it matches at least one selected ${providerLabel} genre.`}
-        genres={genres}
-        state={genresState}
-        selectedGenres={filters.IncludeGenres}
-        onChange={(value) => set(`${filterPath}.IncludeGenres`, value)}
-        onRefresh={loadGenres}
-        emptyLabel="No include genre filter"
-        providerLabel={providerLabel}
-        className="sm:col-span-2 xl:col-span-2"
-        error={fieldError(`${filterPath}.IncludeGenres`)}
-      />
-      <GenrePicker
-        label="Exclude genres"
-        help="Optional filter. Matching media is skipped even if it passes the age rules."
-        genres={genres}
-        state={genresState}
-        selectedGenres={filters.ExcludeGenres}
-        onChange={(value) => set(`${filterPath}.ExcludeGenres`, value)}
-        onRefresh={loadGenres}
-        emptyLabel="No excluded genres"
-        providerLabel={providerLabel}
-        className="sm:col-span-2 xl:col-span-2"
-        error={fieldError(`${filterPath}.ExcludeGenres`)}
-      />
-      {children}
+      </div>
+      <div className="grid min-w-0 gap-4 md:grid-cols-2">
+        <GenrePicker
+          label="Include genres"
+          help={`Optional filter. When set, Scrubarr only considers this media type when it matches at least one selected ${providerLabel} genre.`}
+          genres={genres}
+          state={genresState}
+          selectedGenres={filters.IncludeGenres}
+          onChange={(value) => set(`${filterPath}.IncludeGenres`, value)}
+          onRefresh={loadGenres}
+          emptyLabel="No include genre filter"
+          providerLabel={providerLabel}
+          error={fieldError(`${filterPath}.IncludeGenres`)}
+        />
+        <GenrePicker
+          label="Exclude genres"
+          help="Optional filter. Matching media is skipped even if it passes the age rules."
+          genres={genres}
+          state={genresState}
+          selectedGenres={filters.ExcludeGenres}
+          onChange={(value) => set(`${filterPath}.ExcludeGenres`, value)}
+          onRefresh={loadGenres}
+          emptyLabel="No excluded genres"
+          providerLabel={providerLabel}
+          error={fieldError(`${filterPath}.ExcludeGenres`)}
+        />
+      </div>
     </Section>
   );
 }
@@ -583,7 +589,7 @@ export default function CleanupRules() {
   const providerLabel = mediaServerSelected ? mediaServerLabel : "media server";
 
   return (
-    <form className="space-y-6" onSubmit={save} noValidate>
+    <form className="space-y-6 pb-24" onSubmit={save} noValidate>
       <section>
         <p className="text-sm font-medium text-accent">Rules</p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight">Cleanup Rules</h1>
@@ -595,18 +601,10 @@ export default function CleanupRules() {
       <CleanupPreview previewOnly={settings.CleanupRules.DryRun} />
 
       <Section
-        title="Summary"
+        title="When media qualifies"
         icon={<SlidersHorizontal size={19} />}
-        description="A plain-English view of the rules currently selected below."
-      >
-        <CleanupRuleSummary summary={ruleSummary} error={ruleSummaryError} />
-      </Section>
-
-      <Section
-        title="Shared age rules"
-        icon={<SlidersHorizontal size={19} />}
-        description="Age checks used by both movie and series cleanup."
-        contentClassName="grid min-w-0 gap-4 p-5 sm:grid-cols-2 xl:grid-cols-3"
+        description="Shared age checks used by both movie and series cleanup."
+        contentClassName="grid min-w-0 gap-4 p-5 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,14rem))]"
       >
         <Field
           label="Watched age (days)"
@@ -672,10 +670,19 @@ export default function CleanupRules() {
       />
 
       <Section
-        title="Run mode and queue safety"
+        title="Rule summary"
+        icon={<SlidersHorizontal size={19} />}
+        description="A short plain-language check of the cleanup rules above."
+        contentClassName="p-5"
+      >
+        <CleanupRuleSummary summary={ruleSummary} error={ruleSummaryError} />
+      </Section>
+
+      <Section
+        title="Queue and safety"
         icon={<ShieldCheck size={19} />}
-        description="Choose preview or live cleanup, then set queue limits, timing, and safeguards."
-        contentClassName="grid min-w-0 gap-4 p-5 md:grid-cols-3"
+        description="Choose preview or live cleanup, then set limits, review time, and safeguards."
+        contentClassName="space-y-5 p-5"
       >
         <Toggle
           label="Preview only mode"
@@ -687,76 +694,81 @@ export default function CleanupRules() {
           }
           checked={settings.CleanupRules.DryRun}
           onChange={(value) => set("CleanupRules.DryRun", value)}
-          className="md:col-span-3"
           error={fieldError("CleanupRules.DryRun")}
         />
         <PreviewModeExplanation enabled={settings.CleanupRules.DryRun} />
-        <Field
-          label="Maximum movies marked"
-          help="Maximum number of new movies Scrubarr may add to the pending queue in one run."
-          error={fieldError("Limits.MaxMoviesMarked")}
-        >
-          <NumberInput
-            value={settings.Limits.MaxMoviesMarked}
-            className="max-w-44"
-            onChange={(value) => set("Limits.MaxMoviesMarked", value)}
-          />
-        </Field>
-        <Field
-          label="Maximum series marked"
-          help="Maximum number of new series Scrubarr may add to the pending queue in one run."
-          error={fieldError("Limits.MaxSeriesMarked")}
-        >
-          <NumberInput
-            value={settings.Limits.MaxSeriesMarked}
-            className="max-w-44"
-            onChange={(value) => set("Limits.MaxSeriesMarked", value)}
-          />
-        </Field>
+        <div>
+          <p className="text-sm font-semibold text-neutral-100">Queue limits and review window</p>
+          <div className="mt-3 grid min-w-0 gap-4 md:grid-cols-2">
+            <Field
+              label="Maximum movies marked"
+              help="Maximum number of new movies Scrubarr may add to the pending queue in one run."
+              error={fieldError("Limits.MaxMoviesMarked")}
+            >
+              <NumberInput
+                value={settings.Limits.MaxMoviesMarked}
+                className="max-w-44"
+                onChange={(value) => set("Limits.MaxMoviesMarked", value)}
+              />
+            </Field>
+            <Field
+              label="Maximum series marked"
+              help="Maximum number of new series Scrubarr may add to the pending queue in one run."
+              error={fieldError("Limits.MaxSeriesMarked")}
+            >
+              <NumberInput
+                value={settings.Limits.MaxSeriesMarked}
+                className="max-w-44"
+                onChange={(value) => set("Limits.MaxSeriesMarked", value)}
+              />
+            </Field>
+          </div>
+          <Field
+            label="Days until deletion"
+            help="How many days an item remains pending after being marked before cleanup can remove it."
+            className="mt-4"
+            error={fieldError("DeletionSchedule.DaysUntilDeletion")}
+          >
+            <NumberInput
+              value={settings.DeletionSchedule.DaysUntilDeletion}
+              minimum={1}
+              className="max-w-44"
+              onChange={(value) => set("DeletionSchedule.DaysUntilDeletion", value)}
+            />
+          </Field>
+        </div>
         <QueueLimitWarning
           movieLimit={settings.Limits.MaxMoviesMarked}
           seriesLimit={settings.Limits.MaxSeriesMarked}
           providerLabel={mediaServerLabel}
         />
-        <Field
-          label="Days until deletion"
-          help="How many days an item remains pending after being marked before cleanup can remove it."
-          error={fieldError("DeletionSchedule.DaysUntilDeletion")}
-        >
-          <NumberInput
-            value={settings.DeletionSchedule.DaysUntilDeletion}
-            minimum={1}
-            className="max-w-44"
-            onChange={(value) => set("DeletionSchedule.DaysUntilDeletion", value)}
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
+          <Toggle
+            label="Protect in-progress media"
+            help={`When enabled, Scrubarr records when media first appears in ${providerLabel}'s Continue Watching list and skips it until that in-progress age is older than Never watched age.`}
+            warning="Recommended if people often pause and continue media later. Abandoned Continue Watching items can still qualify after the configured age."
+            checked={settings.CleanupRules.ProtectInProgress}
+            onChange={(value) => set("CleanupRules.ProtectInProgress", value)}
+            error={fieldError("CleanupRules.ProtectInProgress")}
           />
-        </Field>
-        <Toggle
-          label="Protect in-progress media"
-          help={`When enabled, Scrubarr records when media first appears in ${providerLabel}'s Continue Watching list and skips it until that in-progress age is older than Never watched age.`}
-          warning="Recommended if people often pause and continue media later. Abandoned Continue Watching items can still qualify after the configured age."
-          checked={settings.CleanupRules.ProtectInProgress}
-          onChange={(value) => set("CleanupRules.ProtectInProgress", value)}
-          className="md:col-span-3"
-          error={fieldError("CleanupRules.ProtectInProgress")}
-        />
-        <Toggle
-          label="Tag pending items in Radarr/Sonarr"
-          help="Optional. When Scrubarr adds media to the pending queue, it can also add a tag in Radarr or Sonarr so the item is easy to spot there. Scrubarr's own pending queue remains the source of truth."
-          warning={
-            settings.Arrs.PendingTag.Enabled
-              ? "Scrubarr will try to add and remove this tag as pending items change."
-              : ""
-          }
-          checked={settings.Arrs.PendingTag.Enabled}
-          onChange={(value) => set("Arrs.PendingTag.Enabled", value)}
-          className="md:col-span-3"
-          error={fieldError("Arrs.PendingTag.Enabled")}
-        />
+          <Toggle
+            label="Tag pending items in Radarr/Sonarr"
+            help="Optional. When Scrubarr adds media to the pending queue, it can also add a tag in Radarr or Sonarr so the item is easy to spot there. Scrubarr's own pending queue remains the source of truth."
+            warning={
+              settings.Arrs.PendingTag.Enabled
+                ? "Scrubarr will try to add and remove this tag as pending items change."
+                : ""
+            }
+            checked={settings.Arrs.PendingTag.Enabled}
+            onChange={(value) => set("Arrs.PendingTag.Enabled", value)}
+            error={fieldError("Arrs.PendingTag.Enabled")}
+          />
+        </div>
         {settings.Arrs.PendingTag.Enabled && (
           <Field
             label="Arr pending tag name"
             help="The Radarr/Sonarr tag Scrubarr will use for pending items. Use lowercase letters, numbers, and hyphens only. Example: scrubarr-pending."
-            className="md:col-span-3 max-w-md"
+            className="max-w-md"
             error={fieldError("Arrs.PendingTag.Name")}
           >
             <TextInput
@@ -776,7 +788,6 @@ export default function CleanupRules() {
           tone="danger"
           checked={settings.CleanupRules.FallbackFileDeletion}
           onChange={(value) => set("CleanupRules.FallbackFileDeletion", value)}
-          className="md:col-span-3"
           error={fieldError("CleanupRules.FallbackFileDeletion")}
         />
       </Section>

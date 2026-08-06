@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   CircleAlert,
   ClipboardList,
@@ -144,6 +144,28 @@ function joinQueuePath(root, subfolder) {
 
 function isUpToDateMessage(message) {
   return /up to date/i.test(String(message || ""));
+}
+
+function hasLockedMediaServer(settings) {
+  return (
+    settings?.MediaServer?.Locked === true &&
+    ["emby", "jellyfin"].includes(settings.MediaServer?.Provider)
+  );
+}
+
+function SettingsGroup({ eyebrow, title, description, children }) {
+  return (
+    <section className="space-y-3">
+      <div className="max-w-3xl px-1">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent/90">
+          {eyebrow}
+        </p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">{title}</h2>
+        {description && <p className="mt-1 text-sm leading-6 text-neutral-400">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 function UpdateSuccessPill({ children, size = "sm" }) {
@@ -840,7 +862,12 @@ export default function Settings() {
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [validationErrors, setValidationErrors] = useState([]);
 
-  async function loadMediaServerUsers() {
+  const loadMediaServerUsers = useCallback(async (draftSettings) => {
+    if (!hasLockedMediaServer(draftSettings)) {
+      setMediaServerUsers([]);
+      setMediaServerUsersState({ state: "idle", message: "" });
+      return;
+    }
     setMediaServerUsersState({ state: "loading", message: "" });
     try {
       const data = await fetchMediaServerUsers();
@@ -849,9 +876,14 @@ export default function Settings() {
     } catch (error) {
       setMediaServerUsersState({ state: "error", message: error.message });
     }
-  }
+  }, []);
 
-  async function loadMediaServerLibraries(draftSettings = settings) {
+  const loadMediaServerLibraries = useCallback(async (draftSettings) => {
+    if (!hasLockedMediaServer(draftSettings)) {
+      setMediaServerLibraries([]);
+      setMediaServerLibrariesState({ state: "idle", message: "" });
+      return;
+    }
     setMediaServerLibrariesState({ state: "loading", message: "" });
     try {
       const data = await fetchMediaServerLibraries(draftSettings);
@@ -860,7 +892,7 @@ export default function Settings() {
     } catch (error) {
       setMediaServerLibrariesState({ state: "error", message: error.message });
     }
-  }
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -871,30 +903,11 @@ export default function Settings() {
         setSettings(loadedSettings);
         setUpdateInfo(loadedUpdateInfo);
         setPendingProviderLock(false);
-        setMediaServerUsersState({ state: "loading", message: "" });
-        fetchMediaServerUsers()
-          .then((data) => {
-            setMediaServerUsers(data.users || []);
-            setMediaServerUsersState({ state: "idle", message: "" });
-          })
-          .catch((error) => {
-            setMediaServerUsersState({ state: "error", message: error.message });
-          });
-        setMediaServerLibrariesState({ state: "loading", message: "" });
-        fetchMediaServerLibraries(loadedSettings)
-          .then((data) => {
-            setMediaServerLibraries(data.libraries || []);
-            setMediaServerLibrariesState({ state: "idle", message: "" });
-          })
-          .catch((error) => {
-            setMediaServerLibrariesState({
-              state: "error",
-              message: error.message,
-            });
-          });
+        loadMediaServerUsers(loadedSettings);
+        loadMediaServerLibraries(loadedSettings);
       })
       .catch((error) => setLoadError(error.message));
-  }, []);
+  }, [loadMediaServerLibraries, loadMediaServerUsers]);
 
   useEffect(() => {
     const latest = updateInfo?.lastCheck?.latestVersion;
@@ -1007,7 +1020,7 @@ export default function Settings() {
       setValidationErrors([]);
       setAuthPasswordConfirm("");
       setPendingProviderLock(false);
-      loadMediaServerUsers();
+      loadMediaServerUsers(data.settings);
       loadMediaServerLibraries(data.settings);
       setSaveState({ state: "success", message: "Settings saved." });
     } catch (error) {
@@ -1182,7 +1195,8 @@ export default function Settings() {
       setSettings(loadedSettings);
       setUpdateInfo(loadedUpdateInfo);
       setPendingProviderLock(false);
-      loadMediaServerUsers();
+      loadMediaServerUsers(loadedSettings);
+      loadMediaServerLibraries(loadedSettings);
       setBackupState({ state: "success", message: data.message });
     } catch (error) {
       setBackupState({ state: "error", message: error.message });
@@ -1199,6 +1213,11 @@ export default function Settings() {
   const mediaServerLogo = mediaProvider === "jellyfin" ? jellyfinLogo : embyLogo;
   const mediaServerConfig = settings[mediaServerName] || {};
   const mediaServerLocked = settings.MediaServer?.Locked === true;
+  const mediaServerConnectionConfigured =
+    mediaServerLocked &&
+    !pendingProviderLock &&
+    Boolean(mediaServerConfig.ServerUrl) &&
+    mediaServerConfig.ApiKeyConfigured === true;
   const mediaServerDescription = pendingProviderLock
     ? `This Scrubarr install will be locked to ${mediaServerName} once you configure and save these settings. Add the ${mediaServerName} server URL, API information, libraries, and users Scrubarr should use and then save.`
     : `Add the ${mediaServerName} server URL, API information, libraries, and users Scrubarr should use.`;
@@ -1289,57 +1308,72 @@ export default function Settings() {
         <p className="text-sm font-medium text-accent">Configuration</p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight">Settings</h1>
         <p className="mt-2 max-w-3xl text-neutral-400">
-          Manage connections, notifications, storage, backups, and access for
-          Scrubarr.
+          Manage media server connections, notifications, backups, access, and
+          updates for Scrubarr.
         </p>
       </section>
 
       {!mediaServerLocked && (
-        <SettingsSection
-          title="Media server"
-          icon={<Info size={22} />}
-          description="Choose whether this Scrubarr install should use Emby or Jellyfin. You will be asked to confirm before the install is locked."
+        <SettingsGroup
+          eyebrow="Start here"
+          title="Choose your media server"
+          description="Scrubarr uses one media server per installation. Choose Emby or Jellyfin first; you will confirm the choice before it is locked."
         >
-          <div className="grid gap-3 md:col-span-2 sm:grid-cols-2">
-            {mediaServerProviders.map((provider) => (
-              <button
-                key={provider.id}
-                type="button"
-                onClick={() => chooseProvider(provider.id)}
-                className="flex min-h-24 items-start gap-4 rounded-xl border border-line bg-canvas p-4 text-left transition hover:border-accent hover:bg-accent/10"
-              >
-                <img src={provider.logo} alt="" className="h-9 w-9 shrink-0" />
-                <span>
-                  <span className="flex items-center gap-2 text-base font-semibold text-white">
-                    {provider.name}
+          <SettingsSection
+            title="Media server"
+            icon={<Info size={22} />}
+            description="The selected server provides playback history, library details, posters, and Leaving Soon libraries."
+          >
+            <div className="grid gap-3 md:col-span-2 sm:grid-cols-2">
+              {mediaServerProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  onClick={() => chooseProvider(provider.id)}
+                  className="flex min-h-28 items-start gap-4 rounded-xl border border-line bg-canvas p-4 text-left transition hover:border-accent hover:bg-accent/10"
+                >
+                  <img src={provider.logo} alt="" className="h-10 w-10 shrink-0" />
+                  <span>
+                    <span className="flex items-center gap-2 text-base font-semibold text-white">
+                      {provider.name}
+                    </span>
+                    <span className="mt-1 block text-sm leading-5 text-neutral-400">
+                      {provider.description}
+                    </span>
                   </span>
-                  <span className="mt-1 block text-sm leading-5 text-neutral-400">
-                    {provider.description}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </SettingsSection>
+                </button>
+              ))}
+            </div>
+          </SettingsSection>
+          <p className="rounded-xl border border-line bg-canvas/50 px-4 py-3 text-sm leading-6 text-neutral-400">
+            Radarr, Sonarr, and Telegram settings become available after you save
+            the selected media server connection.
+          </p>
+        </SettingsGroup>
       )}
 
       {mediaServerLocked && (
-        <SettingsSection
-          title={mediaServerName}
-          logo={mediaServerLogo}
+        <SettingsGroup
+          eyebrow={mediaServerConnectionConfigured ? "Media server" : "Finish setup"}
+          title={mediaServerConnectionConfigured ? `${mediaServerName} connection` : `Connect ${mediaServerName}`}
           description={mediaServerDescription}
-          action={
-            <ServiceTestButton
-              service={mediaProvider}
-              settings={settings}
-              onSuccess={() => {
-                loadMediaServerUsers();
-                loadMediaServerLibraries();
-              }}
-              {...testResult(mediaProvider)}
-            />
-          }
         >
+          <SettingsSection
+            title={mediaServerName}
+            logo={mediaServerLogo}
+            description="Connection, library, user, and Leaving Soon library settings."
+            action={
+              <ServiceTestButton
+                service={mediaProvider}
+                settings={settings}
+                onSuccess={() => {
+                  loadMediaServerUsers(settings);
+                  loadMediaServerLibraries(settings);
+                }}
+                {...testResult(mediaProvider)}
+              />
+            }
+          >
         <Field
           label="Server URL"
           help={serverUrlHelp[mediaServerName]}
@@ -1368,7 +1402,7 @@ export default function Settings() {
           state={mediaServerLibrariesState}
           selectedNames={mediaServerConfig.SearchLibraries || []}
           onChange={(value) => set(`${mediaServerName}.SearchLibraries`, value)}
-          onRefresh={() => loadMediaServerLibraries()}
+          onRefresh={() => loadMediaServerLibraries(settings)}
           error={fieldError(`${mediaServerName}.SearchLibraries`)}
         />
         <MediaServerUsersPicker
@@ -1377,7 +1411,7 @@ export default function Settings() {
           state={mediaServerUsersState}
           selectedIds={mediaServerConfig.UserIds || []}
           onChange={(value) => set(`${mediaServerName}.UserIds`, value)}
-          onRefresh={loadMediaServerUsers}
+          onRefresh={() => loadMediaServerUsers(settings)}
           error={fieldError(`${mediaServerName}.UserIds`)}
         />
         <Toggle
@@ -1431,9 +1465,16 @@ export default function Settings() {
           </div>
         </Field>
         <div />
-        </SettingsSection>
+          </SettingsSection>
+        </SettingsGroup>
       )}
 
+      {mediaServerConnectionConfigured && (
+        <SettingsGroup
+          eyebrow="Connected services"
+          title="Arr connections"
+          description="Optional Radarr and Sonarr connections let Scrubarr match media and request deletions through the relevant Arr service."
+        >
       {["Radarr", "Sonarr"].map((name) => {
         const key = name.toLowerCase();
         const config = settings.Arrs[name];
@@ -1484,7 +1525,15 @@ export default function Settings() {
           </SettingsSection>
         );
       })}
+        </SettingsGroup>
+      )}
 
+      {mediaServerConnectionConfigured && (
+        <SettingsGroup
+          eyebrow="Notifications"
+          title="Telegram"
+          description="Optional alerts for queue changes, deletion reminders, reports, and critical failures."
+        >
       <SettingsSection
         title="Telegram"
         logo={telegramLogo}
@@ -1584,7 +1633,15 @@ export default function Settings() {
           </div>
         )}
       </SettingsSection>
+        </SettingsGroup>
+      )}
 
+      {mediaServerLocked && (
+      <SettingsGroup
+        eyebrow="App administration"
+        title="Access, backup, and updates"
+        description="Protect local access, keep a recoverable backup, and check for new Scrubarr versions."
+      >
       <SettingsSection
         title="Access control"
         icon={<KeyRound size={19} />}
@@ -1825,7 +1882,10 @@ export default function Settings() {
           onCopy={copyGuidedUpdateCommands}
         />
       </SettingsSection>
+      </SettingsGroup>
+      )}
 
+      {mediaServerLocked && (
       <div className="sticky bottom-4 flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur">
         {saveState.message && (
           <span
@@ -1849,6 +1909,7 @@ export default function Settings() {
           Save settings
         </button>
       </div>
+      )}
     </form>
   );
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  nextPendingScheduledRun,
   nextScheduledRun,
   SchedulerService,
   validateScheduleConfig,
@@ -69,6 +70,47 @@ test("calculates selected weekday runs", () => {
   );
 
   assert.equal(next.toISOString(), "2026-06-08T04:30:00.000Z");
+});
+
+test("skips an already completed scheduled date when arming the next timer", () => {
+  const next = nextPendingScheduledRun(
+    {
+      enabled: true,
+      frequency: "daily",
+      time: "12:00",
+      daysOfWeek: [0],
+    },
+    "Pacific/Auckland",
+    {
+      from: new Date("2026-07-26T23:59:55.000Z"),
+      lastScheduledDate: "2026-07-27",
+    },
+  );
+
+  assert.equal(next.toISOString(), "2026-07-28T00:00:00.000Z");
+});
+
+test("returns the cached next run from scheduler status", async () => {
+  const scheduler = new SchedulerService({
+    store: new MemoryStore({
+      config: {
+        enabled: true,
+        frequency: "weekly",
+        time: "04:30",
+        daysOfWeek: [1],
+      },
+    }),
+    scanCoordinator: { isBusy: () => false },
+    timezone: "UTC",
+  });
+
+  await scheduler.start();
+  const firstStatus = scheduler.status();
+  const secondStatus = scheduler.status();
+  scheduler.stop();
+
+  assert.ok(firstStatus.nextRun);
+  assert.equal(secondStatus.nextRun, firstStatus.nextRun);
 });
 
 test("persists schedule state and queues candidates during scheduled runs", async () => {
@@ -210,6 +252,37 @@ test("runs a scheduled date only once after duplicate timer callbacks", async ()
   assert.equal(scanCount, 1);
   assert.equal(notificationCount, 1);
   assert.equal(store.value.lastScheduledDate, "2026-07-25");
+});
+
+test("re-arms the timer after a late duplicate scheduled callback", async () => {
+  const scheduler = new SchedulerService({
+    store: new MemoryStore(),
+    scanCoordinator: {
+      isBusy: () => false,
+      commitEligibleCandidates: async () => ({
+        added: [],
+        result: {
+          readOnly: false,
+          candidates: [],
+          queue: { added: 0, movies: 0, series: 0 },
+          warnings: [],
+          summary: { scanned: 0, candidateMovies: 0, candidateSeries: 0 },
+        },
+      }),
+    },
+    timezone: "UTC",
+  });
+
+  await scheduler.start();
+  await scheduler.runNow({ scheduledDate: "2026-07-25" });
+  let rearmed = 0;
+  scheduler.scheduleTimer = () => {
+    rearmed += 1;
+  };
+
+  await scheduler.runNow({ scheduledDate: "2026-07-25" });
+
+  assert.equal(rearmed, 1);
 });
 
 test("scheduler summaries remain read-only when using an old scan coordinator", async () => {

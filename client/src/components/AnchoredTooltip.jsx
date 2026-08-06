@@ -102,8 +102,12 @@ export default function AnchoredTooltip({
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) close();
       }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={close}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") setOpen(true);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") close();
+      }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       {trigger}

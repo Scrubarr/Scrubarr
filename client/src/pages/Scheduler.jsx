@@ -32,12 +32,12 @@ function displayDate(value, timezone) {
 
 function SummaryCard({ icon, label, value, detail }) {
   return (
-    <div className="rounded-xl border border-line bg-panel p-5">
+    <div className="min-w-0 bg-panel p-5">
       <div className="flex items-center gap-2 text-sm text-neutral-400">
         {icon}
         {label}
       </div>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className="mt-2 text-lg font-semibold text-neutral-100">{value}</p>
       {detail && <p className="mt-1 text-xs text-neutral-400">{detail}</p>}
     </div>
   );
@@ -133,36 +133,46 @@ export default function Scheduler() {
         </p>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <SummaryCard
-          icon={
-            <span
-              className={`h-2 w-2 rounded-full ${
-                config.enabled ? "bg-emerald-400" : "bg-red-400"
-              }`}
-            />
-          }
-          label="Status"
-          value={config.enabled ? "Scheduled" : "Not scheduled"}
-          detail={
-            config.enabled
-              ? "Scrubarr is scheduled to run."
-              : "Scrubarr is not scheduled to run."
-          }
-        />
-        <SummaryCard
-          icon={<CalendarClock size={16} />}
-          label="Next run"
-          value={displayDate(status.nextRun, status.timezone)}
-          detail={status.timezone}
-        />
-        <SummaryCard
-          icon={<Clock3 size={16} />}
-          label="Last run"
-          value={displayDate(lastRun?.completedAt, status.timezone)}
-          detail={lastRunDetail}
-        />
-      </div>
+      <section className="overflow-hidden rounded-xl border border-line bg-line">
+        <div className="border-b border-line bg-panel px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent/90">
+            Schedule snapshot
+          </p>
+          <p className="mt-1 text-sm text-neutral-400">
+            Current schedule status and the most recent recorded run.
+          </p>
+        </div>
+        <div className="grid gap-px bg-line md:grid-cols-3">
+          <SummaryCard
+            icon={
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  config.enabled ? "bg-emerald-400" : "bg-red-400"
+                }`}
+              />
+            }
+            label="Status"
+            value={config.enabled ? "Scheduled" : "Not scheduled"}
+            detail={
+              config.enabled
+                ? "Scrubarr is scheduled to run."
+                : "Scrubarr is not scheduled to run."
+            }
+          />
+          <SummaryCard
+            icon={<CalendarClock size={16} />}
+            label="Next run"
+            value={displayDate(status.nextRun, status.timezone)}
+            detail={status.timezone}
+          />
+          <SummaryCard
+            icon={<Clock3 size={16} />}
+            label="Last run"
+            value={displayDate(lastRun?.completedAt, status.timezone)}
+            detail={lastRunDetail}
+          />
+        </div>
+      </section>
 
       {schedulerSetupMessage && (
         <StatePanel tone="warning">{schedulerSetupMessage}</StatePanel>
@@ -183,7 +193,7 @@ export default function Scheduler() {
             <span>
               <span className="block text-sm font-medium">Enable scheduled runs</span>
               <span className="mt-1 block text-xs text-neutral-400">
-                The scheduler resumes automatically when Scrubarr starts.
+                The scheduler resumes automatically when Scrubarr starts. Nothing runs while this is off.
               </span>
             </span>
             <input
@@ -252,7 +262,7 @@ export default function Scheduler() {
         <StatePanel tone="error">Last run failed: {lastRun.message}</StatePanel>
       )}
 
-      <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur md:sticky md:bottom-4">
+      <div className="relative z-20 flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur md:sticky md:bottom-4">
         {state.message && (
           <span
             className={`mr-auto text-sm ${

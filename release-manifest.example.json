@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.1.5",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.1.5",
-  "notes": "Prevents stale scheduler timers and duplicate scheduled runs."
+  "version": "1.2.0",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.0",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.0",
+  "notes": "Refreshes the UI hierarchy and strengthens scheduler continuity."
 }
