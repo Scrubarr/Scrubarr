@@ -34,6 +34,10 @@ export function entryFromPreviewResult({
   const librarySyncWarnings = Array.isArray(librarySync?.scanWarnings)
     ? librarySync.scanWarnings.map(String)
     : [];
+  const queueCleanupWarnings = asList(librarySync?.queueCleanupWarnings).map(
+    (warning) =>
+      `${warning?.type || "Queue"}: ${warning?.title || "Unknown item"}: ${warning?.reason || "Managed queue cleanup failed."}`,
+  );
   return {
     id: `${completedAt}-${source}`,
     source,
@@ -52,7 +56,11 @@ export function entryFromPreviewResult({
     existingPendingMovies: Number(result.summary?.existingPendingMovies || 0),
     existingPendingSeries: Number(result.summary?.existingPendingSeries || 0),
     skipped: result.summary?.skipped || {},
-    warnings: [...asList(result.warnings).map(String), ...librarySyncWarnings],
+    warnings: [
+      ...asList(result.warnings).map(String),
+      ...librarySyncWarnings,
+      ...queueCleanupWarnings,
+    ],
     librarySync: librarySync
       ? {
           status: librarySync.status || (librarySync.skipped ? "skipped" : "success"),
@@ -68,6 +76,9 @@ export function entryFromPreviewResult({
           scanWarnings: Array.isArray(librarySync.scanWarnings)
             ? librarySync.scanWarnings
             : [],
+          queueCleanupWarnings: asList(librarySync.queueCleanupWarnings),
+          linksRemoved: Number(librarySync.linksRemoved || 0),
+          removalRetries: Number(librarySync.removalRetries || 0),
           message: safeString(librarySync.message),
         }
       : null,

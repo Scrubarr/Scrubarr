@@ -21,6 +21,8 @@ const LIBRARY_OWNERSHIP_FILE = "deletion-library-ownership.json";
 const STRM_EXTENSION = ".strm";
 const INDEX_CHECK_ATTEMPTS = 3;
 const INDEX_CHECK_DELAY_MS = 750;
+const MANAGED_ENTRY_REMOVE_ATTEMPTS = 3;
+const MANAGED_ENTRY_REMOVE_DELAY_MS = 200;
 const EMPTY_QUEUE_IGNORE_NAMES = new Set(["desktop.ini", ".ds_store", MANIFEST_NAME]);
 const EMPTY_QUEUE_ARTIFACT_NAMES = new Set([
   "backdrop.jpg",
@@ -435,14 +437,50 @@ async function isRealPathInsideDirectory(candidatePath, baseDirectory) {
   }
 }
 
-async function removeManagedEntry(entryPath, baseDirectory) {
+export async function removeManagedEntry(
+  entryPath,
+  baseDirectory,
+  {
+    attempts = MANAGED_ENTRY_REMOVE_ATTEMPTS,
+    remove = fs.rm,
+    wait = delay,
+  } = {},
+) {
   if (!isInsideDirectory(entryPath, baseDirectory)) {
     throw new Error("Managed entry path is outside the queue path.");
   }
+  const existing = await fs.lstat(entryPath).catch(() => null);
+  if (!existing) {
+    return { removed: false, missing: true, attempts: 0 };
+  }
   if (!(await isRealPathInsideDirectory(entryPath, baseDirectory))) {
+    const stillExists = await fs.lstat(entryPath).catch(() => null);
+    if (!stillExists) {
+      return { removed: false, missing: true, attempts: 0 };
+    }
     throw new Error("Managed entry path does not resolve inside the queue path.");
   }
-  await fs.rm(entryPath, { recursive: true, force: true });
+
+  let lastError = null;
+  const maximumAttempts = Math.max(1, Number(attempts) || 1);
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      await remove(entryPath, { recursive: true, force: true });
+      return { removed: true, missing: false, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maximumAttempts) break;
+      if (!(await fs.lstat(entryPath).catch(() => null))) {
+        return { removed: false, missing: true, attempts: attempt };
+      }
+      await wait(MANAGED_ENTRY_REMOVE_DELAY_MS * attempt);
+    }
+  }
+
+  throw new Error(
+    `Managed queue entry could not be removed after ${maximumAttempts} attempts: ${lastError?.message || "unknown error"}`,
+    { cause: lastError },
+  );
 }
 
 async function removeLegacyQueueManifest(directory) {
@@ -528,11 +566,38 @@ async function ensureQueueDirectory(directory) {
 }
 
 async function ensureMovieEntry({ item, settings, baseDirectory, manifest }) {
+  const manifestEntry = manifest[item.ItemId];
   const target = await getMediaServerItemMediaPath(settings, item.ItemId);
-  if (!target) return { linked: false, skipped: true, message: "Missing movie media path." };
+  if (!target) {
+    try {
+      let removal = null;
+      if (manifestEntry?.path) {
+        removal = await removeManagedEntry(manifestEntry.path, baseDirectory);
+        delete manifest[item.ItemId];
+      }
+      return {
+        linked: false,
+        removed: Boolean(manifestEntry),
+        removalAttempts: removal?.attempts || 0,
+        skipped: true,
+        cleanupWarning: false,
+        repairNotice: Boolean(manifestEntry),
+        message: manifestEntry
+          ? "Missing movie media path; removed its stale managed queue entry."
+          : "Missing movie media path.",
+      };
+    } catch (error) {
+      return {
+        linked: false,
+        removed: false,
+        skipped: true,
+        cleanupWarning: true,
+        message: error.message,
+      };
+    }
+  }
   const name = displayName(item);
   const linkPath = path.join(baseDirectory, strmFileName(name));
-  const manifestEntry = manifest[item.ItemId];
   if (!(await canReplacePath(linkPath, manifestEntry))) {
     return {
       linked: false,
@@ -559,13 +624,38 @@ async function ensureMovieEntry({ item, settings, baseDirectory, manifest }) {
 }
 
 async function ensureSeriesEntry({ item, settings, baseDirectory, manifest }) {
+  const manifestEntry = manifest[item.ItemId];
   const episodes = await getMediaServerSeriesEpisodes(settings, item.ItemId);
   const playableEpisodes = episodes.filter((episode) => episode.Path);
   if (playableEpisodes.length === 0) {
-    return { linked: false, skipped: true, message: "No episode media paths found." };
+    try {
+      let removal = null;
+      if (manifestEntry?.path) {
+        removal = await removeManagedEntry(manifestEntry.path, baseDirectory);
+        delete manifest[item.ItemId];
+      }
+      return {
+        linked: false,
+        removed: Boolean(manifestEntry),
+        removalAttempts: removal?.attempts || 0,
+        skipped: true,
+        cleanupWarning: false,
+        repairNotice: Boolean(manifestEntry),
+        message: manifestEntry
+          ? "No episode media paths found; removed its stale managed queue entry."
+          : "No episode media paths found.",
+      };
+    } catch (error) {
+      return {
+        linked: false,
+        removed: false,
+        skipped: true,
+        cleanupWarning: true,
+        message: error.message,
+      };
+    }
   }
   const seriesDirectory = path.join(baseDirectory, displayName(item));
-  const manifestEntry = manifest[item.ItemId];
   if (!(await canReplacePath(seriesDirectory, manifestEntry))) {
     return {
       linked: false,
@@ -607,7 +697,11 @@ async function syncType({ type, items, settings, manifestDirectory }) {
     linksCreated: 0,
     linksExisting: 0,
     linksRemoved: 0,
+    removalRetries: 0,
     skipped: [],
+    cleanupWarnings: [],
+    repairNotices: [],
+    removedEntries: [],
     writable: directoryState.ok,
     message: directoryState.message || "",
   };
@@ -631,11 +725,24 @@ async function syncType({ type, items, settings, manifestDirectory }) {
   for (const [itemId, entry] of Object.entries(manifest)) {
     if (expectedIds.has(String(itemId)) || !entry?.path) continue;
     try {
-      await removeManagedEntry(entry.path, directory);
+      const removal = await removeManagedEntry(entry.path, directory);
       delete manifest[itemId];
       summary.linksRemoved += 1;
+      summary.removalRetries += Math.max(0, Number(removal.attempts || 0) - 1);
+      summary.removedEntries.push({
+        title: metadataFromManagedPath(entry.path, type).title || itemId,
+        itemId: String(itemId),
+        attempts: Number(removal.attempts || 0),
+        alreadyMissing: removal.missing === true,
+      });
     } catch (error) {
-      summary.skipped.push({ title: itemId, reason: error.message });
+      const warning = {
+        title: metadataFromManagedPath(entry.path, type).title || itemId,
+        itemId: String(itemId),
+        reason: error.message,
+      };
+      summary.skipped.push(warning);
+      summary.cleanupWarnings.push(warning);
     }
   }
 
@@ -643,16 +750,73 @@ async function syncType({ type, items, settings, manifestDirectory }) {
     const result = item.Type === "Series"
       ? await ensureSeriesEntry({ item, settings, baseDirectory: directory, manifest })
       : await ensureMovieEntry({ item, settings, baseDirectory: directory, manifest });
+    if (result.removed) {
+      summary.linksRemoved += 1;
+      summary.removedEntries.push({
+        title: item.Title,
+        itemId: String(item.ItemId),
+        attempts: Number(result.removalAttempts || 0),
+        alreadyMissing: result.removalAttempts === 0,
+      });
+    }
+    summary.removalRetries += Math.max(0, Number(result.removalAttempts || 0) - 1);
     if (result.linked) summary.linksCreated += 1;
     else if (result.existing) summary.linksExisting += 1;
     else if (result.skipped) {
-      summary.skipped.push({ title: item.Title, reason: result.message });
+      const warning = { title: item.Title, reason: result.message };
+      summary.skipped.push(warning);
+      if (result.cleanupWarning) summary.cleanupWarnings.push(warning);
+      if (result.repairNotice) summary.repairNotices.push(warning);
     }
   }
 
   await writeManifest({ manifestDirectory, type, manifest });
   await removeLegacyQueueManifest(directory);
   return summary;
+}
+
+function queueCleanupWarningsFromLinks(links) {
+  const warnings = [];
+  const seen = new Set();
+  for (const link of asList(links)) {
+    for (const warning of asList(link?.cleanupWarnings)) {
+      const normalized = {
+        type: link.type,
+        title: String(warning?.title || "Unknown item"),
+        reason: String(warning?.reason || "Managed queue cleanup failed."),
+      };
+      const key = `${normalized.type}|${normalized.title}|${normalized.reason}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      warnings.push(normalized);
+    }
+  }
+  return warnings;
+}
+
+function queueRemovalSummary(links) {
+  return {
+    linksRemoved: asList(links).reduce(
+      (total, link) => total + Number(link?.linksRemoved || 0),
+      0,
+    ),
+    removalRetries: asList(links).reduce(
+      (total, link) => total + Number(link?.removalRetries || 0),
+      0,
+    ),
+    removedEntries: asList(links).flatMap((link) =>
+      asList(link?.removedEntries).map((entry) => ({
+        type: link.type,
+        ...entry,
+      })),
+    ),
+    repairNotices: asList(links).flatMap((link) =>
+      asList(link?.repairNotices).map((notice) => ({
+        type: link.type,
+        ...notice,
+      })),
+    ),
+  };
 }
 
 async function removeEmptyDeletionLibraries({
@@ -750,28 +914,33 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
       await syncType({ type: "Movie", items: [], settings, manifestDirectory }),
       await syncType({ type: "Series", items: [], settings, manifestDirectory }),
     ];
+    const queueCleanupWarnings = queueCleanupWarningsFromLinks(links);
+    const queueRemoval = queueRemovalSummary(links);
     const emptyLibraries = await removeEmptyDeletionLibraries({
       settings,
       countsByType: { Movie: 0, Series: 0 },
       links,
       manifestDirectory,
     });
-    const removedLinks = links.reduce(
-      (total, link) => total + Number(link.linksRemoved || 0),
-      0,
-    );
+    const removedLinks = queueRemoval.linksRemoved;
     const removedLibraries = emptyLibraries.removed.length;
     const scan = removedLinks > 0 || removedLibraries > 0
       ? await requestDeletionLibraryScan({ settings, types: [], forceGlobal: true })
       : null;
     return {
       enabled: true,
+      status: queueCleanupWarnings.length > 0 ? "partial" : "success",
       provider: label,
       message: "No pending items to sync.",
       libraries: [],
       librariesRemoved: emptyLibraries.removed,
       libraryRemovalSkipped: emptyLibraries.skipped,
       links,
+      linksRemoved: queueRemoval.linksRemoved,
+      removalRetries: queueRemoval.removalRetries,
+      queueEntriesRemoved: queueRemoval.removedEntries,
+      queueRepairNotices: queueRemoval.repairNotices,
+      queueCleanupWarnings,
       pending: 0,
       refreshed: scan?.scanRequested === true,
       scanRequested: scan?.scanRequested === true,
@@ -787,6 +956,8 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     await syncType({ type: "Movie", items: movies, settings, manifestDirectory }),
     await syncType({ type: "Series", items: series, settings, manifestDirectory }),
   ];
+  const queueCleanupWarnings = queueCleanupWarningsFromLinks(links);
+  const queueRemoval = queueRemovalSummary(links);
 
   const movieLink = links.find((item) => item.type === "Movie");
   const seriesLink = links.find((item) => item.type === "Series");
@@ -858,6 +1029,7 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
 
   return {
     enabled: true,
+    status: queueCleanupWarnings.length > 0 ? "partial" : "success",
     provider: label,
     message: "Deletion library sync completed.",
     pending: active.length,
@@ -865,6 +1037,11 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     librariesRemoved: emptyLibraries.removed,
     libraryRemovalSkipped: emptyLibraries.skipped,
     links,
+    linksRemoved: queueRemoval.linksRemoved,
+    removalRetries: queueRemoval.removalRetries,
+    queueEntriesRemoved: queueRemoval.removedEntries,
+    queueRepairNotices: queueRemoval.repairNotices,
+    queueCleanupWarnings,
     refreshed: scan.scanRequested === true,
     scanRequested: scan.scanRequested === true,
     scanTargets: scan.scanTargets,

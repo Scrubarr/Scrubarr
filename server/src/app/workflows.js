@@ -89,11 +89,27 @@ export function createMaintenanceWorkflows({
         pending,
         manifestDirectory: runtime.librarySyncManifestDirectory,
       });
-      await appLog.info(`${providerLabel} Leaving Soon library sync completed`, {
+      const queueCleanupWarnings = Array.isArray(result.queueCleanupWarnings)
+        ? result.queueCleanupWarnings
+        : [];
+      const logSyncResult = queueCleanupWarnings.length > 0
+        ? appLog.warn.bind(appLog)
+        : appLog.info.bind(appLog);
+      await logSyncResult(`${providerLabel} Leaving Soon library sync completed`, {
         source,
         provider: providerLabel,
+        status: result.status || "success",
         enabled: result.enabled,
         pending: result.pending || 0,
+        linksRemoved: Number(result.linksRemoved || 0),
+        removalRetries: Number(result.removalRetries || 0),
+        queueEntriesRemoved: Array.isArray(result.queueEntriesRemoved)
+          ? result.queueEntriesRemoved
+          : [],
+        queueRepairNotices: Array.isArray(result.queueRepairNotices)
+          ? result.queueRepairNotices
+          : [],
+        queueCleanupWarnings,
         refreshed: result.refreshed === true,
         scanRequested: result.scanRequested === true,
         scanStillInProgress: result.scanStillInProgress === true,

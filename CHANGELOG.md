@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2
+
+- Retried transient failures while removing Scrubarr-managed Leaving Soon
+  queue entries, reducing stale `.strm` files after deletion runs.
+- Reconciled missing managed queue entries and removed stale links when the
+  matching media-server item or playable episode paths no longer exist.
+- Recorded queue repairs, retries, and unresolved cleanup warnings in app and
+  run logs; unresolved cleanup now marks the library sync as partial.
+
 ## 1.2.1
 
 - Made the guided Docker update field show the readable release tag while

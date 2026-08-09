@@ -155,6 +155,11 @@ function librarySyncSummary(result) {
     scanStillInProgress: result.scanStillInProgress === true,
     indexedItems: Array.isArray(result.indexedItems) ? result.indexedItems : [],
     scanWarnings: Array.isArray(result.scanWarnings) ? result.scanWarnings : [],
+    queueCleanupWarnings: Array.isArray(result.queueCleanupWarnings)
+      ? result.queueCleanupWarnings
+      : [],
+    linksRemoved: Number(result.linksRemoved || 0),
+    removalRetries: Number(result.removalRetries || 0),
     message: result.message || "",
   };
 }

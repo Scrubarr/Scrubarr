@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDefaultSettings } from "../src/config/settings.js";
-import { syncDeletionLibraries } from "../src/services/deletion-library-sync.js";
+import {
+  removeManagedEntry,
+  syncDeletionLibraries,
+} from "../src/services/deletion-library-sync.js";
 
 function settings(overrides = {}) {
   return {
@@ -30,6 +33,48 @@ test("deletion library sync is a safe no-op when no items are pending", async ()
   assert.equal(result.enabled, true);
   assert.equal(result.refreshed, false);
   assert.equal(result.message, "No pending items to sync.");
+});
+
+test("managed queue removal retries a transient filesystem failure", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-remove-retry-"));
+  const entryPath = path.join(directory, "managed.strm");
+  let removalCalls = 0;
+
+  try {
+    await fs.writeFile(entryPath, "H:\\Movies\\Managed\\movie.mkv\n", "utf8");
+    const result = await removeManagedEntry(entryPath, directory, {
+      attempts: 3,
+      wait: async () => {},
+      remove: async (...args) => {
+        removalCalls += 1;
+        if (removalCalls < 3) {
+          const error = new Error("resource busy");
+          error.code = "EBUSY";
+          throw error;
+        }
+        return fs.rm(...args);
+      },
+    });
+
+    assert.equal(removalCalls, 3);
+    assert.deepEqual(result, { removed: true, missing: false, attempts: 3 });
+    await assert.rejects(fs.access(entryPath), /ENOENT/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("managed queue removal treats an already-missing entry as reconciled", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-remove-missing-"));
+  try {
+    const result = await removeManagedEntry(
+      path.join(directory, "already-removed.strm"),
+      directory,
+    );
+    assert.deepEqual(result, { removed: false, missing: true, attempts: 0 });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("deletion library sync does not create queue files or libraries without a media-server queue root", async () => {
@@ -712,6 +757,10 @@ test("deletion library sync prunes managed links when pending becomes empty", as
     assert.equal(result.links[0].linksRemoved, 1);
     assert.equal(result.links[1].linksRemoved, 1);
     assert.deepEqual(
+      result.queueEntriesRemoved.map((entry) => entry.title).sort(),
+      ["Deleted Movie", "Deleted Series"],
+    );
+    assert.deepEqual(
       result.librariesRemoved.map((library) => library.name),
       ["Movies Leaving Soon", "Shows Leaving Soon"],
     );
@@ -766,10 +815,133 @@ test("deletion library sync refuses manifest paths outside the queue path", asyn
     });
 
     assert.equal(result.enabled, true);
+    assert.equal(result.status, "partial");
     assert.equal(result.links[0].linksRemoved, 0);
     assert.match(result.links[0].skipped[0].reason, /outside the queue path/);
+    assert.match(result.queueCleanupWarnings[0].reason, /outside the queue path/);
     assert.equal(await fs.readFile(outsideFile, "utf8"), "outside");
   } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync prunes manifest records whose managed file is already absent", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-missing-link-"));
+  const movieDirectory = path.join(directory, "movies");
+  const seriesDirectory = path.join(directory, "series");
+  const manifestDirectory = path.join(directory, "manifest");
+  const missingFile = path.join(movieDirectory, "Already Removed.strm");
+
+  try {
+    await fs.mkdir(movieDirectory, { recursive: true });
+    await fs.mkdir(seriesDirectory, { recursive: true });
+    await fs.mkdir(manifestDirectory, { recursive: true });
+    await fs.writeFile(
+      path.join(manifestDirectory, "deletion-library-movie.json"),
+      `${JSON.stringify({ "movie-1": { path: missingFile, mode: "strm" } }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const config = settings();
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = movieDirectory;
+    config.Emby.ToBeDeletedPaths.Series = seriesDirectory;
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [],
+      manifestDirectory,
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(result.links[0].linksRemoved, 1);
+    assert.equal(result.queueEntriesRemoved[0].title, "Already Removed");
+    assert.equal(result.queueEntriesRemoved[0].alreadyMissing, true);
+    assert.deepEqual(result.queueCleanupWarnings, []);
+    assert.deepEqual(
+      JSON.parse(
+        await fs.readFile(
+          path.join(manifestDirectory, "deletion-library-movie.json"),
+          "utf8",
+        ),
+      ),
+      {},
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deletion library sync removes a managed link when its active media path is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const requestUrl = new URL(String(url));
+    if (requestUrl.pathname === "/Library/VirtualFolders/Query") {
+      return Response.json({
+        Items: [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    if (requestUrl.pathname === "/Users/user-1/Items/movie-1") {
+      return Response.json({ Id: "movie-1", Path: null, MediaSources: [] });
+    }
+    if (requestUrl.pathname === "/Items") {
+      return Response.json({ TotalRecordCount: 0 });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-missing-media-"));
+  const movieDirectory = path.join(directory, "movies");
+  const seriesDirectory = path.join(directory, "series");
+  const manifestDirectory = path.join(directory, "manifest");
+  const movieLink = path.join(movieDirectory, "Missing Movie (2020).strm");
+
+  try {
+    await fs.mkdir(movieDirectory, { recursive: true });
+    await fs.mkdir(seriesDirectory, { recursive: true });
+    await fs.mkdir(manifestDirectory, { recursive: true });
+    await fs.writeFile(movieLink, "H:\\Movies\\Missing Movie\\movie.mkv\n", "utf8");
+    await fs.writeFile(
+      path.join(manifestDirectory, "deletion-library-movie.json"),
+      `${JSON.stringify({ "movie-1": { path: movieLink, mode: "strm" } }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.UserIds = ["user-1"];
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = movieDirectory;
+    config.Emby.ToBeDeletedPaths.Series = seriesDirectory;
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [{
+        ItemId: "movie-1",
+        Title: "Missing Movie",
+        Type: "Movie",
+        Year: 2020,
+      }],
+      manifestDirectory,
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(result.linksRemoved, 1);
+    assert.equal(result.queueRepairNotices[0].title, "Missing Movie");
+    assert.match(result.queueRepairNotices[0].reason, /removed its stale managed queue entry/);
+    await assert.rejects(fs.access(movieLink), /ENOENT/);
+    assert.deepEqual(
+      JSON.parse(
+        await fs.readFile(
+          path.join(manifestDirectory, "deletion-library-movie.json"),
+          "utf8",
+        ),
+      ),
+      {},
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });
   }
 });

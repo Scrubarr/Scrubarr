@@ -81,6 +81,41 @@ test("scheduled scan log entries use scan type", () => {
   assert.equal(entry.readOnly, true);
 });
 
+test("records managed queue cleanup warnings as a partial run", () => {
+  const entry = entryFromPreviewResult({
+    source: "scheduler",
+    startedAt: "2026-08-09T00:00:00.000Z",
+    completedAt: "2026-08-09T00:00:01.000Z",
+    result: {
+      candidates: [],
+      warnings: [],
+      summary: {
+        scanned: 10,
+        candidateMovies: 0,
+        candidateSeries: 0,
+      },
+    },
+    librarySync: {
+      status: "partial",
+      enabled: true,
+      pending: 2,
+      queueCleanupWarnings: [
+        {
+          type: "Series",
+          title: "SAS Rogue Heroes",
+          reason: "Managed queue entry could not be removed.",
+        },
+      ],
+    },
+  });
+
+  assert.equal(entry.status, "partial");
+  assert.deepEqual(entry.warnings, [
+    "Series: SAS Rogue Heroes: Managed queue entry could not be removed.",
+  ]);
+  assert.equal(entry.librarySync.queueCleanupWarnings.length, 1);
+});
+
 test("records failed runs without stack traces", () => {
   const entry = entryFromError({
     source: "scheduler",
