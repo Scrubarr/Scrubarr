@@ -118,6 +118,22 @@ jobs:
             echo "Use this digest when signing the official update manifest after a final release."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Prepare GitHub release notes
+        if: steps.image.outputs.kind == 'release'
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          awk -v heading="## $version" '
+            $0 == heading { collecting = 1; next }
+            collecting && /^## / { exit }
+            collecting { print }
+            END { if (!collecting) exit 2 }
+          ' CHANGELOG.md > release-notes.md
+
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "CHANGELOG.md has no release notes for version $version" >&2
+            exit 1
+          fi
+
       - name: Create GitHub release
         if: steps.image.outputs.kind == 'release'
         env:
@@ -129,5 +145,5 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
               --title "Scrubarr $GITHUB_REF_NAME" \
-              --generate-notes
+              --notes-file release-notes.md
           fi
