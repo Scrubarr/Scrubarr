@@ -1,6 +1,6 @@
 {
-  "version": "1.2.2",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.2",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.2",
-  "notes": "Reconciles stale Scrubarr-managed Leaving Soon entries and reports unresolved queue cleanup clearly."
+  "version": "1.2.3",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.3",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.3",
+  "notes": "Waits for active Emby and Jellyfin library scans before validating Leaving Soon item counts."
 }

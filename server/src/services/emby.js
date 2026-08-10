@@ -152,6 +152,30 @@ export async function refreshEmbyLibraryItem(config, itemId) {
   );
 }
 
+export async function getEmbyLibraryScanStatus(config) {
+  try {
+    const response = await embyRequest(config, "/ScheduledTasks", {}, {
+      operation: "Library scan status",
+    });
+    const tasks = await response.json();
+    const task = (Array.isArray(tasks) ? tasks : []).find((item) =>
+      String(item?.Key || "").toLowerCase() === "refreshlibrary" ||
+      String(item?.Name || "").toLowerCase() === "scan media library"
+    );
+    const rawProgress = task?.CurrentProgressPercentage;
+    const progress = rawProgress === null || rawProgress === undefined
+      ? null
+      : Number(rawProgress);
+    return {
+      available: true,
+      inProgress: String(task?.State || "").toLowerCase() === "running",
+      progress: Number.isFinite(progress) ? progress : null,
+    };
+  } catch {
+    return { available: false, inProgress: false, progress: null };
+  }
+}
+
 export async function getEmbyLibraryItemCount(config, itemId, { includeItemTypes } = {}) {
   if (!itemId) throw new Error("Emby library item id is required");
   const response = await embyRequest(config, "/Items", {

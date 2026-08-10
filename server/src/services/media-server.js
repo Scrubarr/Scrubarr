@@ -3,6 +3,7 @@ import {
   deleteEmbyVirtualFolder,
   fetchEmbyPrimaryImage,
   getEmbyGenres,
+  getEmbyLibraryScanStatus,
   getEmbyLibraryItemCount,
   getEmbyItemMediaPath,
   getEmbyItemsByIds,
@@ -20,6 +21,7 @@ import {
   deleteJellyfinVirtualFolder,
   fetchJellyfinPrimaryImage,
   getJellyfinGenres,
+  getJellyfinLibraryScanStatus,
   getJellyfinLibraryItemCount,
   getJellyfinItemMediaPath,
   getJellyfinItemsByIds,
@@ -48,6 +50,7 @@ const ADAPTERS = {
     deleteVirtualFolder: deleteEmbyVirtualFolder,
     refreshLibrary: refreshEmbyLibrary,
     refreshLibraryItem: refreshEmbyLibraryItem,
+    getLibraryScanStatus: getEmbyLibraryScanStatus,
     getLibraryItemCount: getEmbyLibraryItemCount,
     getItemMediaPath: getEmbyItemMediaPath,
     getSeriesEpisodes: getEmbySeriesEpisodes,
@@ -68,6 +71,7 @@ const ADAPTERS = {
     deleteVirtualFolder: deleteJellyfinVirtualFolder,
     refreshLibrary: refreshJellyfinLibrary,
     refreshLibraryItem: refreshJellyfinLibraryItem,
+    getLibraryScanStatus: getJellyfinLibraryScanStatus,
     getLibraryItemCount: getJellyfinLibraryItemCount,
     getItemMediaPath: getJellyfinItemMediaPath,
     getSeriesEpisodes: getJellyfinSeriesEpisodes,
@@ -176,6 +180,11 @@ export async function refreshMediaServerLibrary(settings) {
 export async function refreshMediaServerLibraryItem(settings, itemId) {
   const { adapter, config } = mediaServerConnection(settings);
   return adapter.refreshLibraryItem(config, itemId);
+}
+
+export async function getMediaServerLibraryScanStatus(settings) {
+  const { adapter, config } = mediaServerConnection(settings);
+  return adapter.getLibraryScanStatus(config);
 }
 
 export async function getMediaServerLibraryItemCount(settings, itemId, options) {

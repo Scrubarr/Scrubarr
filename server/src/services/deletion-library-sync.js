@@ -5,6 +5,7 @@ import {
   ensureMediaServerVirtualFolder,
   getMediaServerItemMediaPath,
   getMediaServerItemsByIds,
+  getMediaServerLibraryScanStatus,
   getMediaServerLibraryItemCount,
   getMediaServerSeriesEpisodes,
   getMediaServerVirtualFolders,
@@ -21,6 +22,8 @@ const LIBRARY_OWNERSHIP_FILE = "deletion-library-ownership.json";
 const STRM_EXTENSION = ".strm";
 const INDEX_CHECK_ATTEMPTS = 3;
 const INDEX_CHECK_DELAY_MS = 750;
+const INDEX_CHECK_ACTIVE_SCAN_ATTEMPTS = 120;
+const INDEX_CHECK_POST_SCAN_ATTEMPTS = 3;
 const MANAGED_ENTRY_REMOVE_ATTEMPTS = 3;
 const MANAGED_ENTRY_REMOVE_DELAY_MS = 200;
 const EMPTY_QUEUE_IGNORE_NAMES = new Set(["desktop.ini", ".ds_store", MANIFEST_NAME]);
@@ -94,11 +97,12 @@ function folderForDeletionLibrary(folders, settings, type) {
 
 async function readIndexState({ settings, types, expectedCounts = {} }) {
   const folders = await getMediaServerVirtualFolders(settings);
+  const scanStatus = await getMediaServerLibraryScanStatus(settings);
   const indexedItems = [];
   const missingExpectedItems = [];
   const mismatchedExpectedItems = [];
   const warnings = [];
-  let scanStillInProgress = false;
+  let scanStillInProgress = scanStatus.inProgress === true;
 
   for (const type of types) {
     const name = deletionLibraryNameFor(settings, type);
@@ -151,25 +155,37 @@ async function readIndexState({ settings, types, expectedCounts = {} }) {
     missingExpectedItems,
     mismatchedExpectedItems,
     scanStillInProgress,
+    scanStatus,
     warnings,
   };
 }
 
 async function waitForIndexState({ settings, types, expectedCounts }) {
   let finalState = null;
+  let sawActiveScan = false;
+  let postScanAttempts = 0;
 
-  for (let attempt = 0; attempt < INDEX_CHECK_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < INDEX_CHECK_ACTIVE_SCAN_ATTEMPTS; attempt += 1) {
     const state = await readIndexState({ settings, types, expectedCounts });
     finalState = state;
     const awaitingIndex = state.missingExpectedItems.length > 0;
     const hasCountMismatch = state.mismatchedExpectedItems.length > 0;
+    sawActiveScan = sawActiveScan || state.scanStillInProgress;
 
-    if (
-      (!state.scanStillInProgress && !awaitingIndex && !hasCountMismatch) ||
-      attempt === INDEX_CHECK_ATTEMPTS - 1
-    ) {
+    if (!state.scanStillInProgress && !awaitingIndex && !hasCountMismatch) {
       break;
     }
+
+    if (!state.scanStillInProgress && sawActiveScan) {
+      postScanAttempts += 1;
+      if (postScanAttempts >= INDEX_CHECK_POST_SCAN_ATTEMPTS) break;
+    } else if (state.scanStillInProgress) {
+      postScanAttempts = 0;
+    } else if (attempt >= INDEX_CHECK_ATTEMPTS - 1) {
+      break;
+    }
+
+    if (attempt === INDEX_CHECK_ACTIVE_SCAN_ATTEMPTS - 1) break;
     await delay(INDEX_CHECK_DELAY_MS);
   }
 

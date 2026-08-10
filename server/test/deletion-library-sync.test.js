@@ -292,6 +292,78 @@ test("deletion library sync warns when queued items are not indexed after scan",
   }
 });
 
+test("deletion library sync waits for an active media-server scan before checking indexed counts", async () => {
+  const originalFetch = globalThis.fetch;
+  let scanStatusChecks = 0;
+  let itemCountChecks = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = new URL(String(url));
+    if (String(url).includes("/Library/VirtualFolders/Query")) {
+      return Response.json({
+        Items: [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
+      });
+    }
+    if (requestUrl.pathname === "/ScheduledTasks") {
+      scanStatusChecks += 1;
+      return Response.json([{
+        Key: "RefreshLibrary",
+        Name: "Scan media library",
+        State: scanStatusChecks < 3 ? "Running" : "Idle",
+        CurrentProgressPercentage: scanStatusChecks < 3 ? 42 : null,
+      }]);
+    }
+    if (requestUrl.pathname === "/Items") {
+      itemCountChecks += 1;
+      return Response.json({ TotalRecordCount: scanStatusChecks < 3 ? 0 : 1 });
+    }
+    if (String(url).endsWith("/Users")) {
+      return Response.json([{ Id: "user-1" }]);
+    }
+    if (String(url).includes("/Users/user-1/Items/movie-1")) {
+      return Response.json({
+        Id: "movie-1",
+        Path: "H:\\Movies\\Example Movie\\Example Movie.mkv",
+        MediaSources: [{ Path: "H:\\Movies\\Example Movie\\Example Movie.mkv" }],
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scrubarr-libraries-active-scan-"));
+  const manifestDirectory = path.join(directory, "manifest");
+
+  try {
+    const config = settings();
+    config.Emby.ServerUrl = "http://emby.local:8096";
+    config.Emby.ApiKey = "emby-key";
+    config.Emby.CreateDeletionLibraries = true;
+    config.Emby.ToBeDeletedPaths.Movies = path.join(directory, "movies");
+    config.Emby.ToBeDeletedPaths.Series = path.join(directory, "series");
+
+    const result = await syncDeletionLibraries({
+      settings: config,
+      pending: [{
+        ItemId: "movie-1",
+        Title: "Example Movie",
+        Type: "Movie",
+        Year: 2020,
+        Path: "H:\\Movies\\Example Movie",
+      }],
+      manifestDirectory,
+    });
+
+    assert.equal(result.globalScanFallback, false);
+    assert.equal(result.scanStillInProgress, false);
+    assert.deepEqual(result.scanWarnings, []);
+    assert.equal(result.indexedItems[0].count, 1);
+    assert.equal(scanStatusChecks, 3);
+    assert.equal(itemCountChecks, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("deletion library sync requests a global refresh when targeted scanning leaves stale indexed items", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -464,6 +536,14 @@ test("deletion library sync creates Jellyfin libraries and requests a targeted J
           : [{ Name: "Movies Leaving Soon", ItemId: "movie-library" }],
       );
     }
+    if (requestUrl.pathname === "/ScheduledTasks") {
+      return Response.json([{
+        Key: "RefreshLibrary",
+        Name: "Scan media library",
+        State: "Idle",
+        CurrentProgressPercentage: null,
+      }]);
+    }
     if (requestUrl.pathname === "/Items") return Response.json({ TotalRecordCount: 1 });
     if (
       requestUrl.pathname === "/Library/VirtualFolders" &&
@@ -560,6 +640,7 @@ test("deletion library sync creates Jellyfin libraries and requests a targeted J
       "/media/movies/Example Movie/Example Movie.mkv\n",
     );
     assert.ok(calls.some((call) => call.method === "POST" && call.pathname === "/Items/movie-library/Refresh"));
+    assert.ok(calls.some((call) => call.method === "GET" && call.pathname === "/ScheduledTasks"));
     assert.ok(!calls.some((call) => call.method === "POST" && call.pathname === "/Library/Refresh"));
   } finally {
     globalThis.fetch = originalFetch;

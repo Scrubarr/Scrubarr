@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3
+
+- Wait for active Emby and Jellyfin library scans to finish before validating
+  Leaving Soon item counts, preventing false indexing warnings while the media
+  server is still scanning.
+- Keep genuine path and indexed-count warnings when a completed scan still
+  does not match Scrubarr's pending queue.
+
 ## 1.2.2
 
 - Retried transient failures while removing Scrubarr-managed Leaving Soon
