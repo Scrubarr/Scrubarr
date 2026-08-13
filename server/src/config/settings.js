@@ -98,6 +98,10 @@ export function createDefaultSettings(runtime) {
         Movies: "Movies Leaving Soon",
         Series: "Shows Leaving Soon",
       },
+      HomeScreen: {
+        KeepDeletionLibrariesTogether: true,
+        IncludeDeletionLibrariesInSecondarySections: false,
+      },
       ToBeDeletedPaths: {
         Movies: "",
         Series: "",
@@ -514,6 +518,18 @@ export function validateSettings(settings) {
       [`${mediaServer}.QueueWritePaths.Series`, config.QueueWritePaths?.Series],
     ]) {
       requireString(value, name, errors);
+    }
+    if (mediaServer === "Emby") {
+      requireBoolean(
+        config.HomeScreen?.KeepDeletionLibrariesTogether,
+        "Emby.HomeScreen.KeepDeletionLibrariesTogether",
+        errors,
+      );
+      requireBoolean(
+        config.HomeScreen?.IncludeDeletionLibrariesInSecondarySections,
+        "Emby.HomeScreen.IncludeDeletionLibrariesInSecondarySections",
+        errors,
+      );
     }
   }
 

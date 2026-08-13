@@ -104,6 +104,10 @@ test("valid defaults preserve dry run and disable filesystem fallback", () => {
   assert.equal(settings.Limits.MaxMoviesMarked, 5);
   assert.equal(settings.Limits.MaxSeriesMarked, 3);
   assert.deepEqual(settings.Emby.ToBeDeletedPaths, { Movies: "", Series: "" });
+  assert.deepEqual(settings.Emby.HomeScreen, {
+    KeepDeletionLibrariesTogether: true,
+    IncludeDeletionLibrariesInSecondarySections: false,
+  });
   assert.deepEqual(settings.Jellyfin.ToBeDeletedPaths, { Movies: "", Series: "" });
 });
 

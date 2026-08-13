@@ -2,7 +2,7 @@ name: scrubarr
 
 services:
   scrubarr:
-    image: ghcr.io/scrubarr/scrubarr:v1.2.3
+    image: ghcr.io/scrubarr/scrubarr:v1.3.0
     restart: unless-stopped
     ports:
       - "8098:8098"

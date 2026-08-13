@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+- Added Emby controls to keep the Movies and Shows Leaving Soon libraries
+  together in every user's library order.
+- Hide Leaving Soon media from Emby secondary home sections such as Latest
+  Media and Continue Watching by default, with an option to enable it.
+- Preserve unrelated Emby user preferences and roll back earlier user updates
+  if a later preference update fails.
+
 ## 1.2.3
 
 - Wait for active Emby and Jellyfin library scans to finish before validating

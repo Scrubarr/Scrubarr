@@ -1447,6 +1447,24 @@ export default function Settings() {
           error={fieldError(`${mediaServerName}.CreateDeletionLibraries`)}
         />
         <div />
+        {mediaServerName === "Emby" && mediaServerConfig.CreateDeletionLibraries && (
+          <>
+            <Toggle
+              label="Keep libraries together"
+              help="Keep the movie and show Leaving Soon libraries next to each other in every Emby user's library order. Applied during library sync."
+              checked={mediaServerConfig.HomeScreen?.KeepDeletionLibrariesTogether !== false}
+              onChange={(value) => set("Emby.HomeScreen.KeepDeletionLibrariesTogether", value)}
+              error={fieldError("Emby.HomeScreen.KeepDeletionLibrariesTogether")}
+            />
+            <Toggle
+              label="Show in home sections"
+              help="Allow Leaving Soon media to appear in sections such as Latest Media and Continue Watching. Disabled by default to avoid duplicate home-screen entries. Applied during library sync."
+              checked={mediaServerConfig.HomeScreen?.IncludeDeletionLibrariesInSecondarySections === true}
+              onChange={(value) => set("Emby.HomeScreen.IncludeDeletionLibrariesInSecondarySections", value)}
+              error={fieldError("Emby.HomeScreen.IncludeDeletionLibrariesInSecondarySections")}
+            />
+          </>
+        )}
         <Field
           label="Movie deletion library name"
           help={`The ${mediaServerName} library name to use for movies that are pending deletion. This library will be shown to your ${mediaServerName} users.`}

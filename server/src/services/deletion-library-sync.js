@@ -13,6 +13,7 @@ import {
   mediaServerLabel,
   refreshMediaServerLibrary,
   refreshMediaServerLibraryItem,
+  syncMediaServerDeletionLibraryPresentation,
 } from "./media-server.js";
 import { createPendingRecords, formatDateInTimezone } from "./pending-queue.js";
 import { activePendingItems } from "./pending-state.js";
@@ -1030,6 +1031,13 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     manifestDirectory,
   });
 
+  let presentation = null;
+  try {
+    presentation = await syncMediaServerDeletionLibraryPresentation(settings);
+  } catch (error) {
+    queueCleanupWarnings.push(error.message);
+  }
+
   const scanTypes = [
     movies.length > 0 && movieLink?.writable ? "Movie" : null,
     series.length > 0 && seriesLink?.writable ? "Series" : null,
@@ -1065,6 +1073,7 @@ export async function syncDeletionLibraries({ settings, pending, manifestDirecto
     indexedItems: scan.indexedItems,
     scanWarnings: scan.warnings,
     globalScanFallback: scan.globalFallback,
+    presentation,
   };
 }
 

@@ -1,6 +1,6 @@
 {
-  "version": "1.2.3",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.2.3",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.2.3",
-  "notes": "Waits for active Emby and Jellyfin library scans before validating Leaving Soon item counts."
+  "version": "1.3.0",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.3.0",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.3.0",
+  "notes": "Adds Emby controls for grouping Leaving Soon libraries and hiding them from secondary home sections."
 }

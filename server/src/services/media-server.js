@@ -10,6 +10,7 @@ import {
   getEmbyActiveSessions,
   getEmbyMediaOverview,
   getEmbySeriesEpisodes,
+  syncEmbyLeavingSoonUserPreferences,
   getEmbyUsers,
   getEmbyVirtualFolders,
   refreshEmbyLibrary,
@@ -61,6 +62,7 @@ const ADAPTERS = {
     getMediaOverview: getEmbyMediaOverview,
     getActiveSessions: getEmbyActiveSessions,
     fetchPrimaryImage: fetchEmbyPrimaryImage,
+    syncDeletionLibraryPresentation: syncEmbyLeavingSoonUserPreferences,
   },
   jellyfin: {
     key: "Jellyfin",
@@ -215,6 +217,20 @@ export async function getMediaServerItemsByIds(settings, itemIds) {
 export async function getMediaServerUsers(settings) {
   const { adapter, config } = mediaServerConnection(settings);
   return adapter.getUsers(config);
+}
+
+export async function syncMediaServerDeletionLibraryPresentation(settings) {
+  const { adapter, config } = mediaServerConnection(settings);
+  if (typeof adapter.syncDeletionLibraryPresentation !== "function") {
+    return { supported: false, updated: 0, unchanged: 0, skipped: 0 };
+  }
+  return adapter.syncDeletionLibraryPresentation(config, {
+    movieLibraryName: config.DeletionLibraries?.Movies,
+    seriesLibraryName: config.DeletionLibraries?.Series,
+    keepTogether: config.HomeScreen?.KeepDeletionLibrariesTogether !== false,
+    includeInSecondarySections:
+      config.HomeScreen?.IncludeDeletionLibrariesInSecondarySections === true,
+  });
 }
 
 export async function getMediaServerGenres(settings) {
