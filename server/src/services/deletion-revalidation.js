@@ -2,6 +2,8 @@ import { evaluateCleanupItem } from "./scan-engine.js";
 import { collectScanItems } from "./scan-sources.js";
 import { activePendingItems } from "./pending-state.js";
 import { isSameExclusion } from "./exclusions.js";
+import { deletionDeferralMessage } from "./deletion-deferrals.js";
+import { applyInProgressTracking } from "./in-progress-tracker.js";
 
 function asList(value) {
   return Array.isArray(value) ? value : [];
@@ -46,6 +48,7 @@ export async function revalidateDuePendingItems({
   settings,
   pending = [],
   exclusions = [],
+  inProgress = [],
   dueItems = [],
   now = new Date(),
   collectItems = collectScanItems,
@@ -72,8 +75,13 @@ export async function revalidateDuePendingItems({
     };
   }
 
+  const trackedItems = applyInProgressTracking({
+    items: asList(collected?.items),
+    records: inProgress,
+    now,
+  }).items;
   const currentById = new Map(
-    asList(collected?.items)
+    trackedItems
       .filter((item) => item?.ItemId)
       .map((item) => [String(item.ItemId), item]),
   );
@@ -138,7 +146,7 @@ export async function revalidateDuePendingItems({
         deferred(
           pendingItem,
           decision.skip || "no-longer-eligible",
-          "Deletion deferred because the item no longer matches the current cleanup rules.",
+          deletionDeferralMessage(decision.skip),
         ),
       );
       continue;

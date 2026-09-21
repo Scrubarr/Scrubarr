@@ -24,6 +24,10 @@ old media is removed.
 
 <img src="docs/screenshots/safety.png" alt="Scrubarr safety page" width="860" />
 
+### Logs
+
+<img src="docs/screenshots/logs.png" alt="Scrubarr logs page" width="860" />
+
 ## What It Does
 
 - Scans movies and series from Emby or Jellyfin.

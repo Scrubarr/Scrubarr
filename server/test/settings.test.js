@@ -109,6 +109,10 @@ test("valid defaults preserve dry run and disable filesystem fallback", () => {
     IncludeDeletionLibrariesInSecondarySections: false,
   });
   assert.deepEqual(settings.Jellyfin.ToBeDeletedPaths, { Movies: "", Series: "" });
+  assert.deepEqual(settings.Jellyfin.HomeScreen, {
+    KeepDeletionLibrariesTogether: true,
+    IncludeDeletionLibrariesInSecondarySections: false,
+  });
 });
 
 test("settings merge ignores unsafe object keys", () => {

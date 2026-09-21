@@ -32,7 +32,7 @@ though Emby or Jellyfin may be installed directly on Windows.
 
    services:
      scrubarr:
-      image: ghcr.io/scrubarr/scrubarr:v1.3.0
+       image: ghcr.io/scrubarr/scrubarr:v1.4.0
        restart: unless-stopped
        ports:
          - "8098:8098"
@@ -143,7 +143,7 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
 
    services:
      scrubarr:
-      image: ghcr.io/scrubarr/scrubarr:v1.3.0
+       image: ghcr.io/scrubarr/scrubarr:v1.4.0
        restart: unless-stopped
        ports:
          - "8098:8098"
@@ -160,8 +160,8 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
        volumes:
          - ./data:/data
          - ./logs:/logs
-         - ./data/leaving-soon/Scrubarr Movies Leaving Soon:/queue/movies
-         - ./data/leaving-soon/Scrubarr Shows Leaving Soon:/queue/series
+         - ./leaving-soon/Scrubarr Movies Leaving Soon:/queue/movies
+         - ./leaving-soon/Scrubarr Shows Leaving Soon:/queue/series
        healthcheck:
          test:
            [
@@ -183,7 +183,21 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
    Docker containers do not always detect the host timezone correctly, so set
    this value explicitly.
 
-5. Check the Leaving Soon queue folders.
+5. Create the writable folders before starting Scrubarr:
+
+   ```bash
+   sudo install -d -o 1000 -g 1000 -m 700 /opt/scrubarr/data /opt/scrubarr/logs
+   sudo install -d -o 1000 -g 1000 -m 755 "/opt/scrubarr/leaving-soon" "/opt/scrubarr/leaving-soon/Scrubarr Movies Leaving Soon" "/opt/scrubarr/leaving-soon/Scrubarr Shows Leaving Soon"
+   ```
+
+   These steps are for a fresh install using the example paths and standard
+   rootful Docker. Scrubarr runs as UID/GID `1000:1000`. For rootless Docker or
+   user-namespace remapping, use the corresponding mapped host owner instead.
+   If you changed the host paths, change these commands to match.
+
+   Keep shared queue folders outside `data` and `logs`: those directories are
+   private to Scrubarr. Give the media-server account read/traverse access to the
+   queue folders, not access to Scrubarr's settings or credentials.
 
    With the default Linux example, the host folders are:
 
@@ -233,7 +247,11 @@ Use this when Docker is running on Linux. Scrubarr itself runs in Docker.
 7. Select the media users Scrubarr should check for watch history.
 8. Add Radarr and Sonarr URLs and API keys.
 9. Click **Test connection** for Radarr and Sonarr.
-10. Configure the Leaving Soon queue root path if you want a custom location.
+10. To show pending media in Emby or Jellyfin, enable **Create Emby deletion libraries**
+    or **Create Jellyfin deletion libraries**
+    in Settings and set **Leaving Soon queue root path** to the parent folder
+    the media server can read. Use the Windows or Docker example below; Docker
+    mounts and the app setting must both be configured. Save Settings.
 11. Optional: configure Telegram notifications.
 12. Go to **Cleanup Rules** and review the rules.
 13. Keep **Preview only mode** enabled.
@@ -277,8 +295,8 @@ folders as Leaving Soon libraries.
 The default Docker host folders are:
 
 ```text
-./data/leaving-soon/Scrubarr Movies Leaving Soon
-./data/leaving-soon/Scrubarr Shows Leaving Soon
+./leaving-soon/Scrubarr Movies Leaving Soon
+./leaving-soon/Scrubarr Shows Leaving Soon
 ```
 
 You need two matching paths for the same real folders:
@@ -348,7 +366,7 @@ For example, on a Windows Docker host:
 ```text
 Host folder:         D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
 Scrubarr sees:       /queue/movies
-Emby/Jellyfin sees:  /media/leaving-soon/movies
+Emby/Jellyfin sees:  /media/leaving-soon/Scrubarr Movies Leaving Soon
 ```
 
 And for series:
@@ -356,23 +374,23 @@ And for series:
 ```text
 Host folder:         D:\Scrubarr\Leaving Soon\Scrubarr Shows Leaving Soon
 Scrubarr sees:       /queue/series
-Emby/Jellyfin sees:  /media/leaving-soon/series
+Emby/Jellyfin sees:  /media/leaving-soon/Scrubarr Shows Leaving Soon
 ```
 
 On a Linux Docker host, the same idea might look like this:
 
 ```text
-Host folder:         /srv/scrubarr/leaving-soon/Scrubarr Movies Leaving Soon
+Host folder:         /opt/scrubarr/leaving-soon/Scrubarr Movies Leaving Soon
 Scrubarr sees:       /queue/movies
-Emby/Jellyfin sees:  /media/leaving-soon/movies
+Emby/Jellyfin sees:  /media/leaving-soon/Scrubarr Movies Leaving Soon
 ```
 
 And for series:
 
 ```text
-Host folder:         /srv/scrubarr/leaving-soon/Scrubarr Shows Leaving Soon
+Host folder:         /opt/scrubarr/leaving-soon/Scrubarr Shows Leaving Soon
 Scrubarr sees:       /queue/series
-Emby/Jellyfin sees:  /media/leaving-soon/series
+Emby/Jellyfin sees:  /media/leaving-soon/Scrubarr Shows Leaving Soon
 ```
 
 In Scrubarr settings, set **Leaving Soon queue root path** to the path the media
@@ -381,6 +399,27 @@ server container sees:
 ```text
 /media/leaving-soon
 ```
+
+For example, add this under the **media server's** existing `volumes:` list on
+Windows (change `D:/Scrubarr/Leaving Soon` to your actual host folder):
+
+```yaml
+volumes:
+  - "D:/Scrubarr/Leaving Soon:/media/leaving-soon:ro"
+```
+
+For the Linux example, use:
+
+```yaml
+volumes:
+  - "/opt/scrubarr/leaving-soon:/media/leaving-soon:ro"
+```
+
+Keep its other mounts. Recreate the media-server container using its normal
+update process after adding the mount. The `:ro` makes this queue mount
+read-only for the media server; Scrubarr still writes through its own mounts.
+Keep the exact `Scrubarr Movies Leaving Soon` and `Scrubarr Shows Leaving Soon`
+subfolder names, because the app adds them to the root you enter.
 
 Scrubarr writes the files through its own Docker mounts, but it tells Emby or
 Jellyfin to scan the paths visible inside the media-server container.
@@ -417,7 +456,7 @@ If the Leaving Soon libraries exist but show no media, check these first:
    ```text
    Docker volume host path:        D:\Scrubarr\Leaving Soon\Scrubarr Movies Leaving Soon
    Scrubarr writes inside Docker:  /queue/movies
-   Media server sees:              /media/leaving-soon/movies
+   Media server sees:              /media/leaving-soon/Scrubarr Movies Leaving Soon
    Scrubarr queue root setting:    /media/leaving-soon
    ```
 
@@ -555,6 +594,11 @@ authentication in front of it.
    password, enable basic authentication, and save settings.
 
 ## Updates
+
+Keep your existing volumes and queue paths when updating; change only the image
+reference unless deliberately migrating storage. New-install examples place
+Leaving Soon folders outside the private `data` directory. An update does not
+move existing queue folders or change media-server library paths automatically.
 
 Scrubarr can check for signed updates and tell you when a newer Docker image is
 available. Official updates can include an immutable image digest, which points

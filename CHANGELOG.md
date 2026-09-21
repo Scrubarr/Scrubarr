@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.4.0
+
+- Redesigned Logs to show the five newest runs by default, with clear
+  failed/partial and warning summaries, date and outcome filters, pagination,
+  local timestamps, expandable details, direct links from Scheduler and Safety,
+  and redacted troubleshooting exports.
+- Added conservative scheduler retries for temporary pre-queue failures, plus
+  Telegram failure, incomplete-run, recovery, deletion-deferral, and pending
+  queue update alerts with duplicate-notification suppression.
+- Recheck due items against current rules, exclusions, watch state, active
+  playback, media-server identity, and Arr identity immediately before
+  deletion. Items that no longer qualify are removed from pending and Leaving
+  Soon, while uncertain or actively playing media remains protected for review.
+- Added Jellyfin parity for keeping Leaving Soon libraries together and hiding
+  them from secondary home sections, while preserving unrelated user settings
+  and rolling back partial preference updates.
+- Improved pending and exclusion handling with duplicate search-result removal,
+  Title Z-A sorting, clearer action progress, preserved mobile scroll position,
+  and safer exclusion artwork recovery.
+- Made scheduled-run health easier to understand across Dashboard, Scheduler,
+  Safety, and Logs, including protected-item outcomes that no longer look like
+  failures.
+- Hardened fresh-install queue paths and Linux permissions guidance, clarified
+  that queue caps include existing pending items, and added automated checks for
+  copy-and-paste Compose examples.
+- Updated supported dependencies to resolve known security advisories without
+  changing Scrubarr's installation model.
+
 ## 1.3.0
 
 - Added Emby controls to keep the Movies and Shows Leaving Soon libraries

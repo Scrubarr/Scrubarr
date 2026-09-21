@@ -67,8 +67,10 @@ Shared age rules apply to both movies and series.
 Queue and safety controls how many items can be added and how long they stay in
 review.
 
-- **Maximum movies marked** limits how many movies can be added in one run.
-- **Maximum series marked** limits how many series can be added in one run.
+- **Maximum movies marked** caps the number of movies pending at once.
+- **Maximum series marked** caps the number of series pending at once.
+- Existing pending items count toward each cap. A scan fills available spaces
+  only when more media qualifies; it does not add a fresh allowance every run.
 - **Days until deletion** controls the review period after an item is queued.
 - **Direct file deletion fallback** is high risk and should normally stay off.
 
@@ -91,6 +93,15 @@ From each pending tile you can:
 If Preview only mode is off and the item reaches its deletion date, Scrubarr can
 delete it through Radarr or Sonarr.
 
+Filter pending items by media type and sort by due date, marked date, or title
+(A-Z or Z-A). **Remove + exclude** waits for queue/library synchronization before
+reporting success; its own button shows the progress indicator.
+
+Before live deletion, Scrubarr rechecks current rules, exclusions, and media
+identity. Media actively playing or paused in Emby/Jellyfin is deferred, and
+unavailable playback checks block deletion. The in-progress protection setting
+also protects unfinished watching between sessions.
+
 ## Leaving Soon Libraries
 
 Leaving Soon libraries show pending media inside Emby or Jellyfin.
@@ -106,6 +117,12 @@ Default library names:
 The original media is not copied. The `.strm` files point back to the original
 media files.
 
+Emby and Jellyfin settings also include **Keep libraries together**, which
+places the two Leaving Soon libraries beside each other in every user's library
+order, and **Show in home sections**, which controls appearances in Latest Media
+and Continue Watching. The latter is off by default to reduce duplicate home
+entries. These preferences are applied during Leaving Soon library sync.
+
 ## Exclusions
 
 Exclusions protect media from being added to pending deletion.
@@ -118,6 +135,11 @@ Use exclusions for:
 - anything that should never be cleaned up automatically
 
 You can search existing exclusions and remove them later if needed.
+
+Filter by media type and sort by title (A-Z or Z-A), release year, or media type.
+Safety's exclusion review flags records that need attention when their linked
+media or Arr record changes. A warning does not silently remove the exclusion;
+review it before choosing whether to keep or remove it.
 
 ## Scheduler
 
@@ -133,6 +155,12 @@ A scheduled run can:
 
 Disable scheduled runs before making major setting changes or applying updates.
 
+If a run cannot start because another operation is busy, or a temporary service
+failure occurs before queue changes begin, Scrubarr can retry after one minute
+and then five more minutes. There are at most two retries for that scheduled
+date. Changing or disabling the schedule cancels them. Scrubarr does not replay
+partially completed runs or catch up missed runs automatically after downtime.
+
 ## Telegram
 
 Telegram notifications are optional.
@@ -143,25 +171,39 @@ Scrubarr can send:
 - reminder messages
 - deletion reports
 - failed deletion alerts
-- connection or run failure alerts
+- connection failures detected during scheduled scans and incomplete/failed run alerts
+- recovery messages after a subsequent healthy scheduled run
 
 First-day summaries, deletion reports, and critical alerts are always sent when
 Telegram is enabled. Reminder frequency is controlled by the Notifications
 setting.
 
+Scrubarr itself sends these alerts through your configured bot; no external
+automation is needed. Repeated identical run problems are suppressed, with at
+most one reminder every 24 hours while they persist. A changed problem can
+trigger a new alert. Failures and details remain in Logs.
+
+These are run-time checks, not continuous server monitoring. If Scrubarr is
+stopped, or Telegram/the internet is unavailable, it cannot deliver an alert.
+An unsuccessful delivery is logged and a continuing failure is checked again
+on the next run/retry. Do not rely on Telegram as the only record of run health.
+
 ## Logs
 
-The Logs page shows:
+The Logs page keeps up to 200 recent run records and shows the five newest by
+default. Use the outcome buttons to jump straight to failed/partial runs or
+runs with warnings, or filter by run type and a local-date range. Choose 5, 25,
+100, or all matching entries per page.
 
-- run history
-- scheduler activity
-- scan results
-- deletion results
-- app logs for troubleshooting
+Each run stays collapsed until you open it. The summary shows scan, queue,
+library-sync, notification, and deletion outcomes; expanded details explain
+warnings, protected media, removed pending items, and failures. Scheduler and
+Safety can link directly to the relevant run.
 
-Secrets and raw API payloads should not appear in normal logs.
-
-You can export logs for troubleshooting.
+The App log and raw Run log remain available for deeper troubleshooting. You
+can export either log as text or download a ZIP containing both. Exports redact
+recognized secrets, but review a file before sharing it because paths, media
+titles, and service details may still be private.
 
 ## Safety
 

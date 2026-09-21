@@ -357,11 +357,14 @@ test("scheduled runs are partial when library sync fails", async () => {
 
 test("scheduled runs fail when the scan queue commit fails", async () => {
   const store = new MemoryStore();
+  const appended = [];
+  const healthEvents = [];
   const scanCoordinator = {
     isBusy: () => false,
     commitEligibleCandidates: async () => {
       const error = new Error("A scan operation is already running");
       error.code = "scan_operation_in_progress";
+      error.service = "Radarr";
       throw error;
     },
   };
@@ -369,6 +372,11 @@ test("scheduled runs fail when the scan queue commit fails", async () => {
     store,
     scanCoordinator,
     timezone: "UTC",
+    runLog: { append: async (entry) => appended.push(structuredClone(entry)) },
+    runHealthNotification: async (event) => {
+      healthEvents.push(structuredClone(event));
+      return { sent: false };
+    },
   });
 
   await scheduler.start();
@@ -376,4 +384,54 @@ test("scheduled runs fail when the scan queue commit fails", async () => {
   scheduler.stop();
 
   assert.equal(store.value.lastRun.status, "failed");
+  assert.deepEqual(store.value.lastRun.issues, [
+    { key: "connection:Radarr", label: "Radarr connection or request failed" },
+  ]);
+  assert.deepEqual(appended[0].issues, store.value.lastRun.issues);
+  assert.deepEqual(healthEvents[0].issues, store.value.lastRun.issues);
+  assert.equal(JSON.stringify(store.value.lastRun.issues).includes("already running"), false);
+});
+
+test("retains one normalized issue set across scheduled summaries, logs, and alerts", async () => {
+  const store = new MemoryStore();
+  const appended = [];
+  const healthEvents = [];
+  const scheduler = new SchedulerService({
+    store,
+    timezone: "UTC",
+    scanCoordinator: {
+      isBusy: () => false,
+      commitEligibleCandidates: async () => ({
+        added: [],
+        result: {
+          readOnly: false,
+          candidates: [],
+          connectionFailures: ["Radarr", "Radarr", "Unknown service"],
+          queue: { added: 0, movies: 0, series: 0 },
+          warnings: [],
+          summary: { scanned: 3, candidateMovies: 0, candidateSeries: 0 },
+        },
+      }),
+    },
+    arrTagging: async () => ({ status: "failed" }),
+    runLog: { append: async (entry) => appended.push(structuredClone(entry)) },
+    runHealthNotification: async (event) => {
+      healthEvents.push(structuredClone(event));
+      return { sent: false };
+    },
+  });
+
+  await scheduler.start();
+  const run = await scheduler.runNow();
+  scheduler.stop();
+
+  const expected = [
+    { key: "connection:Radarr", label: "Radarr connection or request failed" },
+    { key: "tagging", label: "Arr pending tags could not all be applied" },
+  ];
+  assert.equal(run.status, "success");
+  assert.deepEqual(run.issues, expected);
+  assert.deepEqual(store.value.lastRun.issues, expected);
+  assert.deepEqual(appended[0].issues, expected);
+  assert.deepEqual(healthEvents[0].issues, expected);
 });

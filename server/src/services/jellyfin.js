@@ -1,4 +1,5 @@
 import { fetchExternal } from "./external-error.js";
+import { syncLeavingSoonUserPreferences } from "./user-library-presentation.js";
 
 const TIMEOUT_MS = 10000;
 
@@ -301,6 +302,46 @@ export async function getJellyfinUsers(config) {
     .sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { sensitivity: "base" }),
     );
+}
+
+async function getJellyfinUser(config, userId) {
+  const response = await jellyfinRequest(config, `/Users/${encodeURIComponent(userId)}`);
+  return response.json();
+}
+
+async function getJellyfinUserViews(config, userId) {
+  const response = await jellyfinRequest(config, `/Users/${encodeURIComponent(userId)}/Views`);
+  const data = await response.json();
+  return Array.isArray(data?.Items) ? data.Items : [];
+}
+
+async function updateJellyfinUserConfiguration(config, userId, configuration) {
+  await jellyfinRequest(config, `/Users/${encodeURIComponent(userId)}/Configuration`, {}, {
+    method: "POST",
+    body: configuration,
+    operation: "update user home screen preferences",
+  });
+}
+
+export async function syncJellyfinLeavingSoonUserPreferences(config, {
+  movieLibraryName,
+  seriesLibraryName,
+  keepTogether = true,
+  includeInSecondarySections = false,
+} = {}) {
+  return syncLeavingSoonUserPreferences({
+    providerLabel: "Jellyfin",
+    config,
+    movieLibraryName,
+    seriesLibraryName,
+    keepTogether,
+    includeInSecondarySections,
+    getVirtualFolders: getJellyfinVirtualFolders,
+    getUsers: getJellyfinUsers,
+    getUser: getJellyfinUser,
+    getUserViews: getJellyfinUserViews,
+    updateUserConfiguration: updateJellyfinUserConfiguration,
+  });
 }
 
 function activeMediaPath(item = {}) {

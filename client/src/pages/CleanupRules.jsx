@@ -280,27 +280,6 @@ function CleanupRuleSummary({ summary, error }) {
   );
 }
 
-function PreviewModeExplanation({ enabled }) {
-  return (
-    <div
-      className={`rounded-xl border p-4 text-sm leading-6 ${
-        enabled
-          ? "border-emerald-900/50 bg-emerald-950/20 text-emerald-100"
-          : "border-amber-800/60 bg-amber-950/20 text-amber-100"
-      }`}
-    >
-      <p className="font-semibold">
-        Preview only mode is {enabled ? "enabled" : "disabled"}
-      </p>
-      <p className="mt-1">
-        {enabled
-          ? "Scrubarr can scan, queue, notify, and report media, but it will not delete anything."
-          : "Scheduled cleanup can delete expired pending media through Radarr/Sonarr. Review pending items before the next run."}
-      </p>
-    </div>
-  );
-}
-
 function QueueLimitWarning({ movieLimit, seriesLimit, providerLabel }) {
   const highMovies = Number(movieLimit) > HIGH_MOVIE_QUEUE_LIMIT;
   const highSeries = Number(seriesLimit) > HIGH_SERIES_QUEUE_LIMIT;
@@ -315,7 +294,7 @@ function QueueLimitWarning({ movieLimit, seriesLimit, providerLabel }) {
     <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100">
       <p className="font-semibold">High queue limit</p>
       <p className="mt-1">
-        Scrubarr can add up to {parts.join(" and ")} per run. That can make the
+        Scrubarr can keep up to {parts.join(" and ")} pending at once. That can make the
         Leaving Soon libraries on {providerLabel} large and harder to review.
         Keep this intentional.
       </p>
@@ -689,20 +668,19 @@ export default function CleanupRules() {
           help="Enabled means scan, queue, notify, and report only. Disabled means expired pending media can be deleted during scheduled cleanup."
           warning={
             settings.CleanupRules.DryRun
-              ? "Enabled: Scrubarr will not delete media."
-              : "Disabled: expired pending media can be deleted during scheduled cleanup."
+              ? "Enabled: Scrubarr can scan, queue, and send notifications, but will not delete media."
+              : "Disabled: scheduled cleanup can permanently delete pending media once it is due. Review pending items before the next run."
           }
           checked={settings.CleanupRules.DryRun}
           onChange={(value) => set("CleanupRules.DryRun", value)}
           error={fieldError("CleanupRules.DryRun")}
         />
-        <PreviewModeExplanation enabled={settings.CleanupRules.DryRun} />
         <div>
           <p className="text-sm font-semibold text-neutral-100">Queue limits and review window</p>
           <div className="mt-3 grid min-w-0 gap-4 md:grid-cols-2">
             <Field
               label="Maximum movies marked"
-              help="Maximum number of new movies Scrubarr may add to the pending queue in one run."
+              help="Maximum number of movies pending at once. Existing pending movies count toward this limit."
               error={fieldError("Limits.MaxMoviesMarked")}
             >
               <NumberInput
@@ -713,7 +691,7 @@ export default function CleanupRules() {
             </Field>
             <Field
               label="Maximum series marked"
-              help="Maximum number of new series Scrubarr may add to the pending queue in one run."
+              help="Maximum number of series pending at once. Existing pending series count toward this limit."
               error={fieldError("Limits.MaxSeriesMarked")}
             >
               <NumberInput
@@ -746,7 +724,7 @@ export default function CleanupRules() {
           <Toggle
             label="Protect in-progress media"
             help={`When enabled, Scrubarr records when media first appears in ${providerLabel}'s Continue Watching list and skips it until that in-progress age is older than Never watched age.`}
-            warning="Recommended if people often pause and continue media later. Abandoned Continue Watching items can still qualify after the configured age."
+            note="Recommended if people often pause and continue media later. Abandoned Continue Watching items can still qualify after the configured age."
             checked={settings.CleanupRules.ProtectInProgress}
             onChange={(value) => set("CleanupRules.ProtectInProgress", value)}
             error={fieldError("CleanupRules.ProtectInProgress")}
@@ -754,7 +732,7 @@ export default function CleanupRules() {
           <Toggle
             label="Tag pending items in Radarr/Sonarr"
             help="Optional. When Scrubarr adds media to the pending queue, it can also add a tag in Radarr or Sonarr so the item is easy to spot there. Scrubarr's own pending queue remains the source of truth."
-            warning={
+            note={
               settings.Arrs.PendingTag.Enabled
                 ? "Scrubarr will try to add and remove this tag as pending items change."
                 : ""

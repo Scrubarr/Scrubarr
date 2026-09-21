@@ -1,6 +1,8 @@
 import { activePendingItems } from "./pending-state.js";
 import { externalServiceFailure, fetchExternal } from "./external-error.js";
 
+import { deletionDeferralReason } from "./deletion-deferrals.js";
+
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TIMEOUT_MS = 10000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,7 +45,7 @@ function mediaGroups(items) {
   }));
 }
 
-function footer(lines) {
+export function withScrubarrFooter(lines) {
   if (lines.at(-1) !== "") lines.push("");
   lines.push("🧼 Scrubarr-dub-dub 🧼");
   return lines.join("\n").trim();
@@ -115,7 +117,7 @@ export function notificationDaysForPolicy({ daysUntilDeletion, policy } = {}) {
 }
 
 export function formatPendingNotification(items) {
-  const lines = ["<b>🧽 Scrubarr</b>", "", "<i>⏱ Pending deletions</i>", ""];
+  const lines = ["<b>🧽 Scrubarr - Pending Deletions ⏱</b>", ""];
 
   for (const group of mediaGroups(items)) {
     if (group.items.length === 0) continue;
@@ -131,7 +133,7 @@ export function formatPendingNotification(items) {
     }
 
     for (const days of [...byDays.keys()].sort((left, right) => right - left)) {
-      lines.push(`${days} ${days === 1 ? "day" : "days"} remaining:`);
+      lines.push(`<u>${days} ${days === 1 ? "day" : "days"} remaining:</u>`);
       for (const item of sortByTitle(byDays.get(days))) {
         lines.push(`• ${escapeTelegramHtml(titleOf(item))}`);
       }
@@ -139,7 +141,7 @@ export function formatPendingNotification(items) {
     }
   }
 
-  return footer(lines);
+  return withScrubarrFooter(lines);
 }
 
 export function findDuePendingNotifications({
@@ -249,6 +251,20 @@ function formatItemSections(items) {
   return lines;
 }
 
+function formatDeferredItemSections(items) {
+  const lines = [];
+  for (const group of mediaGroups(items)) {
+    if (group.items.length === 0) continue;
+    lines.push(`<b>${group.icon} ${group.label}</b>`);
+    for (const item of sortByTitle(group.items)) {
+      lines.push(`• ${escapeTelegramHtml(titleOf(item))}`);
+      lines.push(`  Reason: ${escapeTelegramHtml(deletionDeferralReason(item.SkipCode))}`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
 function deletionSummaryLines(items) {
   const groups = mediaGroups(items);
   const movies = groups.find((group) => group.type === "Movie")?.items.length || 0;
@@ -257,7 +273,7 @@ function deletionSummaryLines(items) {
 }
 
 export function formatDeletionReport(items) {
-  return footer([
+  return withScrubarrFooter([
     "<b>🧽 Scrubarr - Deletion Report ☠</b>",
     "",
     ...deletionSummaryLines(items),
@@ -268,8 +284,8 @@ export function formatDeletionReport(items) {
 }
 
 export function formatDryRunDeletionReport(items) {
-  return footer([
-    "<b>🧽 Scrubarr - Preview Only Deletion Report</b>",
+  return withScrubarrFooter([
+    "<b>🧽 Scrubarr - Preview Only Deletion Report 🔎</b>",
     "",
     "<i>Items that would have been deleted today:</i>",
     "",
@@ -279,8 +295,8 @@ export function formatDryRunDeletionReport(items) {
 }
 
 export function formatDeletionFailureReport(items) {
-  return footer([
-    "<b>⚠️ Scrubarr - Deletion Failures</b>",
+  return withScrubarrFooter([
+    "<b>🧽 Scrubarr - Deletion Failures ⚠️</b>",
     "",
     "These items could not be deleted:",
     "",
@@ -289,15 +305,35 @@ export function formatDeletionFailureReport(items) {
   ]);
 }
 
+export function formatDeletionDeferredReport(items) {
+  return withScrubarrFooter([
+    "<b>🧽 Scrubarr - Deletion Deferred for Safety 🛡</b>",
+    "",
+    "These due items were not deleted and remain pending:",
+    "",
+    ...formatDeferredItemSections(items),
+    "Scrubarr will check them again during the next scheduled deletion run.",
+  ]);
+}
+
+export function formatPendingRemovalReport(items) {
+  return withScrubarrFooter([
+    "<b>🧽 Scrubarr - Pending Queue Updated ↩️</b>",
+    "",
+    "These due items were removed from pending because they no longer match the current cleanup rules:",
+    "",
+    ...formatDeferredItemSections(items),
+    "No media was deleted. An item can be queued again if it qualifies during a future scan.",
+  ]);
+}
+
 export function formatTestMessage() {
-  return [
-    "<b>🧽 Scrubarr Test Message</b>",
+  return withScrubarrFooter([
+    "<b>🧽 Scrubarr - Test Message ✅</b>",
     "",
     "Telegram is configured correctly.",
     "No scan or deletion was performed.",
-    "",
-    "🧼 Scrubarr-dub-dub 🧼",
-  ].join("\n");
+  ]);
 }
 
 export function splitTelegramMessage(text, limit = TELEGRAM_MESSAGE_LIMIT) {

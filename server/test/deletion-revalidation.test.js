@@ -79,6 +79,52 @@ test("final revalidation defers an item watched after it entered pending", async
 
   assert.equal(result.allowedItems.length, 0);
   assert.equal(result.deferredItems[0].SkipCode, "age-rule-not-met");
+  assert.match(result.deferredItems[0].SkipMessage, /current watch history/);
+});
+
+test("final revalidation explains in-progress protection", async () => {
+  const due = pendingItem();
+  const result = await revalidateDuePendingItems({
+    settings: settings(),
+    pending: [due],
+    dueItems: [due],
+    now: new Date("2026-06-20T00:00:00.000Z"),
+    collectItems: async () => ({
+      items: [currentItem({
+        InProgress: true,
+        InProgressSince: "2026-06-19T00:00:00.000Z",
+      })],
+    }),
+  });
+
+  assert.equal(result.allowedItems.length, 0);
+  assert.equal(result.deferredItems[0].SkipCode, "in-progress");
+  assert.equal(
+    result.deferredItems[0].SkipMessage,
+    "Removed from pending because the item is partially watched and in-progress protection is enabled.",
+  );
+});
+
+test("final revalidation uses persisted in-progress age before deciding protection", async () => {
+  const due = pendingItem();
+  const result = await revalidateDuePendingItems({
+    settings: settings(),
+    pending: [due],
+    inProgress: [{
+      ItemId: "movie-1",
+      Type: "Movie",
+      FirstSeenDate: "2020-01-01T00:00:00.000Z",
+    }],
+    dueItems: [due],
+    now: new Date("2026-06-20T00:00:00.000Z"),
+    collectItems: async () => ({
+      items: [currentItem({ InProgress: true })],
+      warnings: [],
+    }),
+  });
+
+  assert.equal(result.allowedItems.length, 1);
+  assert.equal(result.deferredItems.length, 0);
 });
 
 test("final revalidation defers a newly excluded pending item", async () => {
@@ -93,6 +139,7 @@ test("final revalidation defers a newly excluded pending item", async () => {
 
   assert.equal(result.allowedItems.length, 0);
   assert.equal(result.deferredItems[0].SkipCode, "excluded");
+  assert.match(result.deferredItems[0].SkipMessage, /now excluded/);
 });
 
 test("final revalidation defers an Arr identity mismatch", async () => {

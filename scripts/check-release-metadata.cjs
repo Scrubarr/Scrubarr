@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { checkDocumentation } = require("./check-doc-examples.cjs");
 
 const root = path.resolve(__dirname, "..");
 const imageName = "ghcr.io/scrubarr/scrubarr";
@@ -71,4 +72,5 @@ if (
   );
 }
 
-console.log(`Release metadata is aligned for Scrubarr ${expectedTag}.`);
+const exampleCount = checkDocumentation(root, expectedVersion);
+console.log(`Release metadata is aligned for Scrubarr ${expectedTag}; ${exampleCount} documentation YAML examples validated.`);

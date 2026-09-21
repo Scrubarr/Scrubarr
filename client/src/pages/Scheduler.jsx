@@ -6,10 +6,18 @@ import {
   Save,
 } from "lucide-react";
 import { SelectInput } from "../components/FormControls.jsx";
+import RunStatusPill from "../components/RunStatusPill.jsx";
 import StatePanel from "../components/StatePanel.jsx";
 import { requestJson } from "../lib/api.js";
 import { inputClass } from "../lib/formClasses.js";
 import { mediaServerFromStatus } from "../lib/mediaServerState.js";
+import {
+  collectRunProblems,
+  displayRunDate,
+  getRunOutcome,
+  lastRunDetail,
+  scheduledRunLink,
+} from "../lib/runPresentation.js";
 
 const weekdays = [
   ["Sun", 0],
@@ -20,15 +28,6 @@ const weekdays = [
   ["Fri", 5],
   ["Sat", 6],
 ];
-
-function displayDate(value, timezone) {
-  if (!value) return "Not available";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  }).format(new Date(value));
-}
 
 function SummaryCard({ icon, label, value, detail }) {
   return (
@@ -106,6 +105,9 @@ export default function Scheduler() {
   if (!config || !status || !runtimeStatus) return <StatePanel>Loading scheduler...</StatePanel>;
 
   const lastRun = status.lastRun;
+  const lastRunOutcome = getRunOutcome(lastRun || {});
+  const lastRunProblems = collectRunProblems(lastRun || {});
+  const lastRunHref = scheduledRunLink(lastRun);
   const mediaServer = mediaServerFromStatus(runtimeStatus);
   const schedulerSetupMessage = !mediaServer.selected
     ? "Choose Emby or Jellyfin in Settings before scheduled runs can scan or manage media."
@@ -114,14 +116,6 @@ export default function Scheduler() {
       : mediaServerProbe?.ok === false
         ? `${mediaServer.label} is currently unavailable. Check the ${mediaServer.label} server URL, API key, and network access before relying on scheduled runs.`
       : "";
-  const lastRunDetail = lastRun
-    ? lastRun.status === "success"
-      ? Number(lastRun.queued || 0) > 0
-        ? `${lastRun.queued} queued from ${lastRun.candidates} candidates`
-        : `${lastRun.candidates} candidates found`
-      : "Run failed"
-    : "No scheduler run recorded";
-
   return (
     <form className="space-y-6" onSubmit={save}>
       <section>
@@ -162,14 +156,24 @@ export default function Scheduler() {
           <SummaryCard
             icon={<CalendarClock size={16} />}
             label="Next run"
-            value={displayDate(status.nextRun, status.timezone)}
+            value={displayRunDate(status.nextRun, status.timezone)}
             detail={status.timezone}
           />
           <SummaryCard
             icon={<Clock3 size={16} />}
             label="Last run"
-            value={displayDate(lastRun?.completedAt, status.timezone)}
-            detail={lastRunDetail}
+            value={displayRunDate(lastRun?.completedAt, status.timezone)}
+            detail={lastRun ? (
+              <span className="block space-y-2">
+                <RunStatusPill entry={lastRun} />
+                <span className="block">{lastRunDetail(lastRun)}</span>
+                {lastRunHref && (
+                  <a href={lastRunHref} className="inline-flex font-medium text-accent hover:text-yellow-300">
+                    View log
+                  </a>
+                )}
+              </span>
+            ) : "No scheduler run recorded"}
           />
         </div>
       </section>
@@ -258,8 +262,13 @@ export default function Scheduler() {
         </div>
       </section>
 
-      {lastRun?.status === "failed" && (
-        <StatePanel tone="error">Last run failed: {lastRun.message}</StatePanel>
+      {lastRun && lastRunOutcome.key === "failed" && (
+        <StatePanel tone="error">Last run failed: {lastRun.message || "Scheduled scan failed."}</StatePanel>
+      )}
+      {lastRun && ["warning", "partial"].includes(lastRunOutcome.key) && (
+        <StatePanel tone="warning">
+          Last run needs attention: {lastRunProblems[0] || "Some scheduled work may be incomplete."}
+        </StatePanel>
       )}
 
       <div className="relative z-20 flex flex-wrap items-center justify-end gap-3 rounded-xl border border-line bg-panel/95 p-4 shadow-2xl backdrop-blur md:sticky md:bottom-4">

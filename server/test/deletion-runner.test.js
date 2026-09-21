@@ -193,11 +193,12 @@ test("live deletion blocks items with active playback", async () => {
   });
 
   assert.equal(deleteCalled, false);
-  assert.equal(result.status, "partial");
+  assert.equal(result.status, "success");
   assert.equal(result.deletedTotal, 0);
   assert.equal(result.failedTotal, 0);
   assert.equal(result.deferredTotal, 1);
   assert.match(result.deferredItems[0].SkipMessage, /Deletion deferred because media is in use/);
+  assert.match(result.message, /completed safely/);
 });
 
 test("live deletion blocks paused playback sessions", async () => {
@@ -225,11 +226,138 @@ test("live deletion blocks paused playback sessions", async () => {
   });
 
   assert.equal(deleteCalled, false);
-  assert.equal(result.status, "partial");
+  assert.equal(result.status, "success");
   assert.equal(result.deletedTotal, 0);
   assert.equal(result.failedTotal, 0);
   assert.equal(result.deferredTotal, 1);
   assert.match(result.deferredItems[0].SkipMessage, /Deletion deferred because media is in use/);
+});
+
+test("live deletion sends a clear report for protected deferred items", async () => {
+  const sent = [];
+  const pending = [
+    { ItemId: "series-1", Title: "Protected Series", Type: "Series", MarkedDate: "2026-05-01" },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: true }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: {
+      allowedItems: [],
+      deferredItems: [{
+        ...pending[0],
+        SkipCode: "media-in-use",
+        SkipMessage:
+          "Deletion deferred for safety because the item is currently playing or paused.",
+      }],
+      warnings: [],
+    },
+    sendMessage: async (_config, message) => {
+      sent.push(message);
+      return { messageCount: 1 };
+    },
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.deferredTotal, 1);
+  assert.equal(result.changed, false);
+  assert.equal(result.pendingChanged, true);
+  assert.deepEqual(result.pending[0].DeferralNotification, {
+    Code: "media-in-use",
+    SentDate: "2026-06-20",
+  });
+  assert.equal(result.deferralTelegram.sent, true);
+  assert.equal(result.failureTelegram.sent, false);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /Deletion Deferred for Safety/);
+  assert.match(sent[0], /Protected Series/);
+  assert.match(sent[0], /Currently playing or paused/);
+});
+
+test("live deletion does not repeat an unchanged deferral notification", async () => {
+  const sent = [];
+  const pending = [
+    {
+      ItemId: "series-1",
+      Title: "Protected Series",
+      Type: "Series",
+      MarkedDate: "2026-05-01",
+      DeferralNotification: { Code: "media-in-use", SentDate: "2026-06-19" },
+    },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: true }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: {
+      allowedItems: [],
+      deferredItems: [{
+        ...pending[0],
+        SkipCode: "media-in-use",
+        SkipMessage:
+          "Deletion deferred for safety because the item is currently playing or paused.",
+      }],
+      warnings: [],
+    },
+    sendMessage: async (_config, message) => {
+      sent.push(message);
+      return { messageCount: 1 };
+    },
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.pendingChanged, false);
+  assert.equal(result.deferralTelegram.sent, false);
+  assert.equal(result.deferralTelegram.message, "No new deletion deferrals to report.");
+  assert.equal(sent.length, 0);
+});
+
+test("live deletion removes due items that no longer meet cleanup rules", async () => {
+  const sent = [];
+  const pending = [
+    {
+      ItemId: "series-1",
+      Title: "No Longer Eligible",
+      Type: "Series",
+      MarkedDate: "2026-05-01",
+    },
+  ];
+  const result = await runDeletionCheck({
+    settings: settings({ dryRun: false, telegram: true }),
+    timezone: "UTC",
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    pending,
+    revalidation: {
+      allowedItems: [],
+      deferredItems: [{
+        ...pending[0],
+        SkipCode: "age-rule-not-met",
+        SkipMessage:
+          "Removed from pending because the item's current watch history no longer meets the cleanup age rules.",
+      }],
+      warnings: [],
+    },
+    sendMessage: async (_config, message) => {
+      sent.push(message);
+      return { messageCount: 1 };
+    },
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.removedTotal, 1);
+  assert.equal(result.removedSeries, 1);
+  assert.equal(result.deferredTotal, 0);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.changed, true);
+  assert.equal(result.pendingChanged, true);
+  assert.equal(result.removalTelegram.sent, true);
+  assert.equal(result.deferralTelegram.sent, false);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /Scrubarr - Pending Queue Updated/);
+  assert.match(sent[0], /No Longer Eligible/);
+  assert.match(sent[0], /No media was deleted/);
 });
 
 test("live deletion fails closed when active playback check fails", async () => {

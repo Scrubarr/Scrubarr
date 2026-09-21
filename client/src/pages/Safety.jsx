@@ -14,15 +14,13 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import StatePanel from "../components/StatePanel.jsx";
 import { requestJson } from "../lib/api.js";
 import { mediaServerFromSettings } from "../lib/mediaServerState.js";
-
-function displayDate(value, timezone) {
-  if (!value) return "Not scheduled";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  }).format(new Date(value));
-}
+import {
+  collectRunProblems,
+  displayRunDate,
+  getRunOutcome,
+  lastRunDetail,
+  scheduledRunLink,
+} from "../lib/runPresentation.js";
 
 function plural(value, singular, pluralValue = `${singular}s`) {
   return Number(value) === 1 ? singular : pluralValue;
@@ -138,34 +136,6 @@ function arrReady(arr) {
   return Boolean(arr?.Url) && configuredSecret(arr?.ApiKeyConfigured);
 }
 
-function lastRunDetail(lastRun) {
-  if (!lastRun) return "No scheduler run recorded.";
-  if (lastRun.status === "failed") return lastRun.message || "Run failed.";
-
-  const queued = Number(lastRun.queued || 0);
-  const candidates = Number(lastRun.candidates || 0);
-  const synced = Number(lastRun.librarySync?.pending || 0);
-  const expired = Number(lastRun.cleanup?.expired || 0);
-  const deleted = Number(lastRun.cleanup?.deleted || 0);
-  const failed = Number(lastRun.cleanup?.failed || 0);
-  const deferred = Number(lastRun.cleanup?.deferred || 0);
-  const parts = [];
-
-  parts.push(`${candidates} ${plural(candidates, "candidate")} found`);
-  if (queued > 0) parts.push(`${queued} queued`);
-  if (synced > 0) parts.push(`${synced} pending synced`);
-  if (expired > 0 || deleted > 0 || failed > 0 || deferred > 0) {
-    parts.push(`${deleted} deleted`);
-    if (expired > 0) parts.push(`${expired} eligible`);
-    if (failed > 0) parts.push(`${failed} failed`);
-    if (deferred > 0) parts.push(`${deferred} deferred for review`);
-  }
-  if (lastRun.notifications?.sent) parts.push("Telegram sent");
-
-  const detail = `${parts.join("; ")}.`;
-  return lastRun.status === "partial" ? `Completed with follow-up needed: ${detail}` : detail;
-}
-
 export default function Safety() {
   const [data, setData] = useState(null);
   const [state, setState] = useState({ state: "loading", message: "" });
@@ -276,7 +246,6 @@ export default function Safety() {
       authEnabled && "Built-in basic auth is enabled",
     ].filter(Boolean);
     const enabledFeatures = [
-      deletionLibraries && `${mediaServer.label} Leaving Soon libraries are enabled`,
       schedulerEnabled && "Scheduler is enabled",
     ].filter(Boolean);
 
@@ -374,6 +343,15 @@ export default function Safety() {
   }
 
   const { settings, scheduler } = data;
+  const safetyLastRun = scheduler.lastRun || null;
+  const safetyLastRunOutcome = getRunOutcome(safetyLastRun || {});
+  const safetyLastRunProblems = collectRunProblems(safetyLastRun || {});
+  const safetyLastRunHref = scheduledRunLink(safetyLastRun);
+  const safetyLastRunStatus = safetyLastRunOutcome.key === "failed"
+    ? "danger"
+    : ["warning", "partial"].includes(safetyLastRunOutcome.key)
+      ? "warning"
+      : "neutral";
   const overallTone = summary.blockers.length
     ? "danger"
     : summary.warnings.length
@@ -735,7 +713,7 @@ export default function Safety() {
           label="Scheduled runs"
           detail={
             summary.schedulerEnabled
-              ? `Enabled. Next run is ${displayDate(scheduler.nextRun, summary.timezone)}.`
+              ? `Enabled. Next run is ${displayRunDate(scheduler.nextRun, summary.timezone)}.`
               : "Disabled. Scrubarr will not run on a timer."
           }
         />
@@ -749,15 +727,21 @@ export default function Safety() {
           }
         />
         <ChecklistItem
-          status={
-            scheduler.lastRun?.status === "failed"
-              ? "danger"
-              : scheduler.lastRun?.status === "partial"
-                ? "warning"
-                : "neutral"
-          }
+          status={safetyLastRunStatus}
           label="Last scheduled run"
-          detail={`${displayDate(scheduler.lastRun?.completedAt, summary.timezone)}. ${lastRunDetail(scheduler.lastRun)}`}
+          detail={
+            <span className="block">
+              <span className="block">
+                {displayRunDate(safetyLastRun?.completedAt, summary.timezone)}. {lastRunDetail(safetyLastRun)}
+                {safetyLastRunProblems[0] ? ` ${safetyLastRunProblems[0]}` : ""}
+              </span>
+              {safetyLastRunHref && (
+                <a href={safetyLastRunHref} className="mt-1 inline-flex font-medium text-accent hover:text-yellow-300">
+                  View log
+                </a>
+              )}
+            </span>
+          }
         />
         <ChecklistItem
           status={

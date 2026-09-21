@@ -4,9 +4,11 @@ import {
   escapeTelegramHtml,
   findDuePendingNotifications,
   formatDeletionFailureReport,
+  formatDeletionDeferredReport,
   formatDeletionReport,
   formatDryRunDeletionReport,
   formatPendingNotification,
+  formatPendingRemovalReport,
   formatTestMessage,
   notificationDaysForPolicy,
   sendDuePendingNotifications,
@@ -26,7 +28,12 @@ test("pending messages group by media type then days remaining", () => {
 
   assert.ok(message.indexOf("🎬 Movies") < message.indexOf("📺 Series"));
   assert.ok(message.indexOf("20 days remaining:") < message.indexOf("10 days remaining:"));
-  assert.match(message, /1 day remaining:/);
+  assert.deepEqual(message.split("\n").filter((line) => line.includes("remaining:")), [
+    "<u>20 days remaining:</u>",
+    "<u>10 days remaining:</u>",
+    "<u>10 days remaining:</u>",
+    "<u>1 day remaining:</u>",
+  ]);
   assert.equal(message.includes("day(s)"), false);
   assert.match(message, /• Movie A/);
   assert.match(message, /• Show B/);
@@ -63,6 +70,42 @@ test("deletion reports include media totals and omit countdown suffixes", () => 
   assert.match(real, /<b>🧽 Scrubarr/);
 });
 
+test("deletion deferral reports distinguish safety protection from failure", () => {
+  const message = formatDeletionDeferredReport([
+    {
+      Title: "Special Ops: Lioness <2023>",
+      Type: "Series",
+      SkipCode: "in-progress",
+    },
+    {
+      Title: "Playing Movie",
+      Type: "Movie",
+      SkipCode: "media-in-use",
+    },
+  ]);
+
+  assert.match(message, /Deletion Deferred for Safety/);
+  assert.match(message, /Special Ops: Lioness &lt;2023&gt;/);
+  assert.match(message, /Partially watched; in-progress protection is enabled/);
+  assert.match(message, /Currently playing or paused; active playback protection is enabled/);
+  assert.match(message, /remain pending/);
+  assert.doesNotMatch(message, /Deletion Failures/);
+});
+
+test("pending queue update reports explain rule-based removal without implying deletion", () => {
+  const message = formatPendingRemovalReport([{
+    Title: "Recently Watched Movie",
+    Type: "Movie",
+    SkipCode: "age-rule-not-met",
+  }]);
+
+  assert.match(message, /🧽 Scrubarr - Pending Queue Updated ↩️/);
+  assert.match(message, /Recently Watched Movie/);
+  assert.match(message, /watch history no longer meets the cleanup age rules/);
+  assert.match(message, /No media was deleted/);
+  assert.match(message, /🧼 Scrubarr-dub-dub 🧼/);
+});
+
 test("test message clearly states that no scan or deletion occurred", () => {
   const message = formatTestMessage();
   assert.match(message, /configured correctly/);
@@ -80,12 +123,24 @@ test("production Telegram message formats render expected content", () => {
   const deletion = formatDeletionReport([{ Title: "Deleted Movie", Type: "Movie" }]);
   const dryRun = formatDryRunDeletionReport([{ Title: "Dry Run Movie", Type: "Movie" }]);
   const failure = formatDeletionFailureReport([{ Title: "Failed Movie", Type: "Movie" }]);
+  const deferred = formatDeletionDeferredReport([
+    { Title: "Protected Movie", Type: "Movie", SkipCode: "in-progress" },
+  ]);
+  const removed = formatPendingRemovalReport([
+    { Title: "Removed Movie", Type: "Movie", SkipCode: "too-new" },
+  ]);
 
+  for (const message of [pending, deletion, dryRun, failure, deferred, removed, formatTestMessage()]) {
+    assert.match(message, /^<b>🧽 Scrubarr - /);
+    assert.match(message, /🧼 Scrubarr-dub-dub 🧼$/);
+  }
   assert.ok(pending.includes(specialTitle));
   assert.match(deletion, /Deletion Report/);
   assert.match(dryRun, /Preview Only Deletion Report/);
   assert.match(dryRun, /No media files were actually deleted/);
   assert.match(failure, /Deletion Failures/);
+  assert.match(deferred, /Deletion Deferred for Safety/);
+  assert.match(removed, /Pending Queue Updated/);
 });
 
 test("Telegram HTML escaping covers all required entities", () => {
@@ -115,16 +170,20 @@ test("sender uses Telegram HTML mode", async () => {
     };
   };
 
+  const message = formatPendingNotification([
+    { Title: specialTitle, Type: "Movie", DaysRemaining: 10 },
+  ]);
   const result = await sendTelegramMessage(
     { BotToken: "123:token", ChatID: "-100123" },
-    specialTitle,
+    message,
     fakeFetch,
   );
   const payload = JSON.parse(requests[0].options.body);
 
   assert.equal(result.messageCount, 1);
   assert.equal(payload.chat_id, "-100123");
-  assert.equal(payload.text, specialTitle);
+  assert.equal(payload.text, message);
+  assert.ok(payload.text.includes("<u>10 days remaining:</u>"));
   assert.equal(payload.parse_mode, "HTML");
   assert.equal(payload.disable_web_page_preview, true);
 });

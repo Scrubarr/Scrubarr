@@ -1,10 +1,17 @@
 import fs from "node:fs/promises";
 import {
   formatDeletionFailureReport,
+  formatDeletionDeferredReport,
   formatDeletionReport,
   formatDryRunDeletionReport,
+  formatPendingRemovalReport,
   sendTelegramMessage,
 } from "./telegram.js";
+import {
+  deletionDeferralMessage,
+  deletionDeferralNeedsAttention,
+  deletionDeferralRemovesPending,
+} from "./deletion-deferrals.js";
 import { deleteViaArr } from "./arr-delete.js";
 import { assertSafeDirectDeletionPath } from "./direct-delete-guard.js";
 import { dateOnlyInTimezone, daysSinceDateOnly } from "./date-utils.js";
@@ -19,6 +26,15 @@ function deletedCounts(items) {
   const movies = items.filter((item) => item.Type === "Movie").length;
   const series = items.filter((item) => item.Type === "Series").length;
   return { movies, series, total: movies + series };
+}
+
+function pendingItemKey(item) {
+  return `${item?.Type || "Media"}|${item?.ItemId || ""}`;
+}
+
+function needsDeferralNotification(item, currentPending) {
+  const previous = currentPending?.DeferralNotification;
+  return !previous || previous.Code !== item?.SkipCode;
 }
 
 function dateStamp(now, timezone) {
@@ -75,6 +91,7 @@ async function sendReport({ settings, items, formatter, fallbackMessage, sendMes
   if (settings?.Telegram?.Enabled !== true) {
     return {
       enabled: false,
+      attempted: false,
       sent: false,
       messageCount: 0,
       message: "Telegram is disabled.",
@@ -83,6 +100,7 @@ async function sendReport({ settings, items, formatter, fallbackMessage, sendMes
   if (items.length === 0) {
     return {
       enabled: true,
+      attempted: false,
       sent: false,
       messageCount: 0,
       message: fallbackMessage,
@@ -91,6 +109,7 @@ async function sendReport({ settings, items, formatter, fallbackMessage, sendMes
   const result = await sendMessage(settings.Telegram, formatter(items));
   return {
     enabled: true,
+    attempted: true,
     sent: true,
     messageCount: result.messageCount,
     message: `Sent Telegram report for ${items.length} item(s).`,
@@ -137,14 +156,22 @@ export async function runDeletionCheck({
   const eligibleForDeletion = !dryRun && hasFinalRevalidation
     ? revalidation.allowedItems
     : [];
-  const deferred = !dryRun && hasFinalRevalidation
+  const revalidationOutcomes = !dryRun && hasFinalRevalidation
     ? [...(Array.isArray(revalidation?.deferredItems) ? revalidation.deferredItems : [])]
     : expired.map((item) => ({
       ...item,
       SkipCode: "revalidation-required",
-      SkipMessage: "Deletion deferred because final revalidation was not completed.",
+      SkipMessage: deletionDeferralMessage("revalidation-required"),
     }));
+  const removedFromPending = revalidationOutcomes.filter(
+    deletionDeferralRemovesPending,
+  );
+  const deferred = revalidationOutcomes.filter(
+    (item) => !deletionDeferralRemovesPending(item),
+  );
   let telegram = null;
+  let removalTelegram = null;
+  let deferralTelegram = null;
   let failureTelegram = null;
 
   if (dryRun) {
@@ -159,6 +186,7 @@ export async function runDeletionCheck({
     } catch (error) {
       telegram = {
         enabled: true,
+        attempted: true,
         sent: false,
         messageCount: 0,
         message: error.message || "Telegram dry-run deletion report failed.",
@@ -182,12 +210,19 @@ export async function runDeletionCheck({
       deletedTotal: 0,
       failedItems: [],
       failedTotal: 0,
+      removedItems: [],
+      removedMovies: 0,
+      removedSeries: 0,
+      removedTotal: 0,
       deferredItems: [],
       deferredTotal: 0,
       revalidationWarnings: [],
       pending,
       changed: false,
+      pendingChanged: false,
       telegram,
+      removalTelegram,
+      deferralTelegram,
       failureTelegram,
       message: expired.length === 0
         ? "No pending items have reached their deletion date."
@@ -197,7 +232,7 @@ export async function runDeletionCheck({
 
   const deleted = [];
   const failed = [];
-  const deletedById = new Map();
+  const deletedByKey = new Map();
   const deletedDate = dateStamp(now, timezone);
 
   for (const item of eligibleForDeletion) {
@@ -220,7 +255,7 @@ export async function runDeletionCheck({
         DeletionMessage: deletion.message,
       };
       deleted.push(nextItem);
-      deletedById.set(String(item.ItemId), nextItem);
+      deletedByKey.set(pendingItemKey(item), nextItem);
     } catch (error) {
       failed.push({
         ...item,
@@ -229,10 +264,18 @@ export async function runDeletionCheck({
     }
   }
 
-  const updatedPending = asList(pending).map((item) =>
-    deletedById.get(String(item.ItemId)) || item,
-  );
+  const removedKeys = new Set(removedFromPending.map(pendingItemKey));
+  let updatedPending = asList(pending)
+    .filter((item) => !removedKeys.has(pendingItemKey(item)))
+    .map((item) => deletedByKey.get(pendingItemKey(item)) || item);
   const deletedSummary = deletedCounts(deleted);
+  const removedSummary = deletedCounts(removedFromPending);
+  const pendingByKey = new Map(
+    asList(pending).map((item) => [pendingItemKey(item), item]),
+  );
+  const deferralsToNotify = deferred.filter((item) =>
+    needsDeferralNotification(item, pendingByKey.get(pendingItemKey(item))),
+  );
 
   try {
     telegram = await sendReport({
@@ -245,10 +288,66 @@ export async function runDeletionCheck({
   } catch (error) {
     telegram = {
       enabled: true,
+      attempted: true,
       sent: false,
       messageCount: 0,
       message: error.message || "Telegram deletion report failed.",
     };
+  }
+
+  try {
+    removalTelegram = await sendReport({
+      settings,
+      items: removedFromPending,
+      formatter: formatPendingRemovalReport,
+      fallbackMessage: "No items were removed from pending.",
+      sendMessage,
+    });
+  } catch (error) {
+    removalTelegram = {
+      enabled: true,
+      attempted: true,
+      sent: false,
+      messageCount: 0,
+      message: error.message || "Telegram pending queue update report failed.",
+    };
+  }
+
+  try {
+    deferralTelegram = await sendReport({
+      settings,
+      items: deferralsToNotify,
+      formatter: formatDeletionDeferredReport,
+      fallbackMessage: deferred.length > 0
+        ? "No new deletion deferrals to report."
+        : "No deletions were deferred.",
+      sendMessage,
+    });
+  } catch (error) {
+    deferralTelegram = {
+      enabled: true,
+      attempted: true,
+      sent: false,
+      messageCount: 0,
+      message: error.message || "Telegram deletion deferral report failed.",
+    };
+  }
+
+  const notifiedDeferrals = deferralTelegram?.sent
+    ? new Map(deferralsToNotify.map((item) => [pendingItemKey(item), item]))
+    : new Map();
+  if (notifiedDeferrals.size > 0) {
+    updatedPending = updatedPending.map((item) => {
+      const notified = notifiedDeferrals.get(pendingItemKey(item));
+      if (!notified || item.Deleted) return item;
+      return {
+        ...item,
+        DeferralNotification: {
+          Code: notified.SkipCode,
+          SentDate: deletedDate,
+        },
+      };
+    });
   }
 
   try {
@@ -262,6 +361,7 @@ export async function runDeletionCheck({
   } catch (error) {
     failureTelegram = {
       enabled: true,
+      attempted: true,
       sent: false,
       messageCount: 0,
       message: error.message || "Telegram deletion failure report failed.",
@@ -269,9 +369,10 @@ export async function runDeletionCheck({
   }
 
   const completedAt = new Date().toISOString();
+  const attentionDeferred = deferred.some(deletionDeferralNeedsAttention);
   const status = failed.length > 0
     ? (deleted.length > 0 || deferred.length > 0 ? "partial" : "failed")
-    : deferred.length > 0
+    : attentionDeferred
       ? "partial"
       : "success";
   return {
@@ -290,18 +391,28 @@ export async function runDeletionCheck({
     deletedTotal: deletedSummary.total,
     failedItems: failed,
     failedTotal: failed.length,
+    removedItems: removedFromPending,
+    removedMovies: removedSummary.movies,
+    removedSeries: removedSummary.series,
+    removedTotal: removedSummary.total,
     deferredItems: deferred,
     deferredTotal: deferred.length,
     revalidationWarnings: Array.isArray(revalidation?.warnings)
       ? revalidation.warnings
       : [],
     pending: updatedPending,
-    changed: deleted.length > 0,
+    changed: deleted.length > 0 || removedFromPending.length > 0,
+    pendingChanged:
+      deleted.length > 0 || removedFromPending.length > 0 || notifiedDeferrals.size > 0,
     telegram,
+    removalTelegram,
+    deferralTelegram,
     failureTelegram,
     message: expired.length === 0
       ? "No pending items have reached their deletion date."
-      : `Deletion run complete: ${deleted.length} deleted, ${failed.length} failed, ${deferred.length} deferred.`,
+      : failed.length === 0 && !attentionDeferred
+        ? `Deletion check completed safely: ${deleted.length} deleted, ${removedFromPending.length} removed from pending, ${deferred.length} protected.`
+        : `Deletion run complete: ${deleted.length} deleted, ${removedFromPending.length} removed from pending, ${failed.length} failed, ${deferred.length} deferred.`,
   };
 }
 
@@ -324,10 +435,16 @@ export function deletionRunLogEntry(result, { source = "manual" } = {}) {
     deletedTotal: result.deletedTotal,
     failedItems: result.failedItems,
     failedTotal: result.failedTotal,
+    removedItems: result.removedItems,
+    removedMovies: result.removedMovies,
+    removedSeries: result.removedSeries,
+    removedTotal: result.removedTotal,
     deferredItems: result.deferredItems,
     deferredTotal: result.deferredTotal,
     revalidationWarnings: result.revalidationWarnings,
     telegram: result.telegram,
+    removalTelegram: result.removalTelegram,
+    deferralTelegram: result.deferralTelegram,
     failureTelegram: result.failureTelegram,
     message: result.message,
   };

@@ -65,14 +65,17 @@ export class ScanCoordinator {
 
     return {
       pending: asList(pending),
-      result: previewScan({
-        items: tracked.items,
-        settings,
-        exclusions: asList(exclusions),
-        pending: asList(pending),
-        now,
-        warnings: collected.warnings,
-      }),
+      result: {
+        ...previewScan({
+          items: tracked.items,
+          settings,
+          exclusions: asList(exclusions),
+          pending: asList(pending),
+          now,
+          warnings: collected.warnings,
+        }),
+        connectionFailures: collected.connectionFailures || [],
+      },
     };
   }
 
@@ -105,9 +108,11 @@ export class ScanCoordinator {
     if (!this.beginCommit()) {
       const error = new Error("A scan operation is already running");
       error.code = "scan_operation_in_progress";
+      error.retryableBeforeCommit = true;
       throw error;
     }
 
+    let queueWriteStarted = false;
     try {
       const { pending, result } = await this.buildPreview({ now });
       const records = createPendingRecords(
@@ -115,6 +120,7 @@ export class ScanCoordinator {
         formatDateInTimezone(now, timezone),
       );
       if (records.length > 0) {
+        queueWriteStarted = true;
         await this.pendingStore.write([...pending, ...records]);
       }
 
@@ -132,6 +138,12 @@ export class ScanCoordinator {
           },
         },
       };
+    } catch (error) {
+      // Never retry an ambiguous write or any later work, even for a network-shaped error.
+      error.retryableBeforeCommit = !queueWriteStarted &&
+        error.name === "ExternalServiceError" &&
+        (error.status === null || [408, 429].includes(error.status) || error.status >= 500);
+      throw error;
     } finally {
       this.endCommit();
     }

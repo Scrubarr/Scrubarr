@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   entryFromError,
   entryFromPreviewResult,
+  normalizeRunIssues,
   RunLogService,
 } from "../src/services/run-log.js";
 
@@ -44,6 +45,10 @@ test("creates compact read-only preview log entries", () => {
       scanWarnings: ["Movies Leaving Soon scan completed but no items were indexed."],
       message: "Deletion library sync completed.",
     },
+    issues: [
+      { key: "connection:Radarr", label: "Radarr connection or request failed" },
+      { key: "connection:Radarr", label: "Duplicate label must be discarded" },
+    ],
   });
 
   assert.equal(entry.source, "manual");
@@ -53,6 +58,9 @@ test("creates compact read-only preview log entries", () => {
   assert.equal(entry.candidates, 1);
   assert.equal(entry.librarySync.enabled, true);
   assert.equal(entry.librarySync.refreshed, true);
+  assert.deepEqual(entry.issues, [
+    { key: "connection:Radarr", label: "Radarr connection or request failed" },
+  ]);
   assert.deepEqual(entry.warnings, [
     "Radarr unavailable",
     "Movies Leaving Soon scan completed but no items were indexed.",
@@ -121,11 +129,52 @@ test("records failed runs without stack traces", () => {
     source: "scheduler",
     startedAt: "2026-06-17T00:00:00.000Z",
     error: new Error("Emby URL and API key must be configured"),
+    issues: [
+      {
+        key: "scan",
+        label: "Scan or queue update failed",
+        internalMessage: "ApiKey=do-not-retain",
+      },
+    ],
   });
 
   assert.equal(entry.status, "failed");
   assert.equal(entry.message, "Emby URL and API key must be configured");
   assert.equal("stack" in entry, false);
+  assert.deepEqual(entry.issues, [
+    { key: "scan", label: "Scan or queue update failed" },
+  ]);
+  assert.equal(JSON.stringify(entry.issues).includes("ApiKey"), false);
+});
+
+test("normalizes retained issues without changing run status semantics", () => {
+  assert.deepEqual(
+    normalizeRunIssues([
+      { key: " tagging ", label: " Arr pending tags could not all be applied " },
+      { key: "tagging", label: "Duplicate" },
+      { key: "", label: "Missing key" },
+      { key: "libraries", label: "" },
+      null,
+    ]),
+    [
+      { key: "tagging", label: "Arr pending tags could not all be applied" },
+    ],
+  );
+
+  const entry = entryFromPreviewResult({
+    source: "scheduler",
+    startedAt: "2026-09-09T00:00:00.000Z",
+    completedAt: "2026-09-09T00:00:01.000Z",
+    result: {
+      candidates: [],
+      warnings: [],
+      summary: { scanned: 1, candidateMovies: 0, candidateSeries: 0 },
+    },
+    issues: [{ key: "tagging", label: "Arr pending tags could not all be applied" }],
+  });
+
+  assert.equal(entry.status, "success");
+  assert.equal(entry.issues.length, 1);
 });
 
 test("prepends and caps run log entries", async () => {

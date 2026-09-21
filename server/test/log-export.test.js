@@ -66,12 +66,50 @@ test("run log export includes failed deletion reasons", () => {
         sent: true,
         messageCount: 1,
       },
+      deferralTelegram: {
+        enabled: true,
+        sent: true,
+        messageCount: 1,
+      },
     },
   ]);
 
   assert.match(content, /Failed total: 1/);
   assert.match(content, /Stubborn Movie - Movie - Radarr rejected the delete request/);
   assert.match(content, /Telegram failure report: enabled=true, sent=true, messageCount=1/);
+  assert.match(content, /Telegram deletion deferral report: enabled=true, sent=true, messageCount=1/);
+});
+
+test("run log export includes queue removals, deferrals, and final safety warnings", () => {
+  const content = formatRunLogExport([{
+    type: "deletion",
+    source: "scheduler",
+    status: "partial",
+    completedAt: "2026-06-25T01:00:02.000Z",
+    removedTotal: 1,
+    deferredTotal: 1,
+    removedItems: [{
+      Title: "Recently Watched",
+      Type: "Movie",
+      SkipMessage: "Removed from pending because watch history changed.",
+    }],
+    deferredItems: [{
+      Title: "Currently Playing",
+      Type: "Series",
+      SkipMessage: "Deletion deferred because media is in use.",
+    }],
+    revalidationWarnings: ["One library could not be checked"],
+    issues: [{ key: "revalidation", label: "Final safety check needs attention" }],
+    removalTelegram: { enabled: true, attempted: true, sent: true, messageCount: 1 },
+  }]);
+
+  assert.match(content, /Removed from pending: 1/);
+  assert.match(content, /Recently Watched - Movie - Removed from pending/);
+  assert.match(content, /Deferred media:/);
+  assert.match(content, /Currently Playing - Series - Deletion deferred/);
+  assert.match(content, /Final deletion safety warnings:/);
+  assert.match(content, /Recorded issues:/);
+  assert.match(content, /Telegram pending queue update report:/);
 });
 
 test("run log export labels scheduled scans and uses cleanup mode", () => {

@@ -1,5 +1,5 @@
 import { getProviderId } from "./arr-resolver.js";
-import { fetchExternal } from "./external-error.js";
+import { externalServiceFailure, fetchExternal } from "./external-error.js";
 import {
   mediaServerConnection,
   mediaServerDeletionLibraryNames,
@@ -19,7 +19,15 @@ async function requestJson(url, headers = {}, { service, operation } = {}) {
     timeoutMs: TIMEOUT_MS,
     options: { headers },
   });
-  return response.json();
+  try {
+    return await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) throw error;
+    throw externalServiceFailure({
+      service, operation, cause: error,
+      detail: "connection interrupted or timed out while reading the response",
+    });
+  }
 }
 
 function toDateValue(value) {
@@ -428,5 +436,8 @@ export async function collectScanItems(settings) {
     warnings.push(`Sonarr unavailable: ${sonarrResult.error.message}`);
   }
 
-  return { items, warnings };
+  const connectionFailures = [];
+  if (!radarrResult.ok && settings.Arrs.Radarr.Enabled) connectionFailures.push("Radarr");
+  if (!sonarrResult.ok && settings.Arrs.Sonarr.Enabled) connectionFailures.push("Sonarr");
+  return { items, warnings, connectionFailures };
 }

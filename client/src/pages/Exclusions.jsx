@@ -68,6 +68,9 @@ export default function Exclusions() {
       })
       .slice()
       .sort((left, right) => {
+        if (sortBy === "title-desc") {
+          return compareTitles(right, left);
+        }
         if (sortBy === "year-newest") {
           return Number(right.Year || 0) - Number(left.Year || 0) || compareTitles(left, right);
         }
@@ -173,6 +176,7 @@ export default function Exclusions() {
             Sort by
             <SelectInput value={sortBy} onChange={setSortBy}>
               <option value="title">Title A-Z</option>
+              <option value="title-desc">Title Z-A</option>
               <option value="year-newest">Year newest</option>
               <option value="year-oldest">Year oldest</option>
               <option value="movies">Movies first</option>

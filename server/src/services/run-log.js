@@ -11,6 +11,19 @@ function safeString(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
+export function normalizeRunIssues(value) {
+  const seen = new Set();
+  const issues = [];
+  for (const issue of asList(value)) {
+    const key = safeString(issue?.key).trim();
+    const label = safeString(issue?.label).trim();
+    if (!key || !label || seen.has(key)) continue;
+    seen.add(key);
+    issues.push({ key, label });
+  }
+  return issues;
+}
+
 function runTypeForPreviewSource(source) {
   return source === "scheduler" ? "scan" : "preview";
 }
@@ -30,6 +43,7 @@ export function entryFromPreviewResult({
   librarySync,
   notifications,
   cleanup,
+  issues,
 }) {
   const librarySyncWarnings = Array.isArray(librarySync?.scanWarnings)
     ? librarySync.scanWarnings.map(String)
@@ -56,6 +70,7 @@ export function entryFromPreviewResult({
     existingPendingMovies: Number(result.summary?.existingPendingMovies || 0),
     existingPendingSeries: Number(result.summary?.existingPendingSeries || 0),
     skipped: result.summary?.skipped || {},
+    issues: normalizeRunIssues(issues),
     warnings: [
       ...asList(result.warnings).map(String),
       ...librarySyncWarnings,
@@ -106,7 +121,13 @@ export function entryFromPreviewResult({
   };
 }
 
-export function entryFromError({ source, type = "preview", error, startedAt }) {
+export function entryFromError({
+  source,
+  type = "preview",
+  error,
+  startedAt,
+  issues,
+}) {
   const completedAt = new Date().toISOString();
   return {
     id: `${completedAt}-${source}`,
@@ -117,6 +138,7 @@ export function entryFromError({ source, type = "preview", error, startedAt }) {
     completedAt,
     readOnly: true,
     message: safeString(error?.message, "Run failed"),
+    issues: normalizeRunIssues(issues),
   };
 }
 

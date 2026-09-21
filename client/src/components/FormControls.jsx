@@ -206,6 +206,7 @@ export function Toggle({
   onChange,
   label,
   warning,
+  note,
   help,
   tone = "default",
   disabled = false,
@@ -238,6 +239,7 @@ export function Toggle({
           <HelpTooltip text={help} />
         </span>
         {error && <span className="mt-1 block text-xs text-red-300">{error}</span>}
+        {note && <span className="mt-1 block text-xs text-neutral-400">{note}</span>}
         {warning && (
           <span
             className={`mt-1 block text-xs ${
@@ -250,7 +252,7 @@ export function Toggle({
       </span>
       <input
         id={id}
-        className={`mt-1 h-4 w-4 ${danger ? "accent-red-500" : "accent-yellow-400"}`}
+        className={`mt-1 h-4 w-4 shrink-0 ${danger ? "accent-red-500" : "accent-yellow-400"}`}
         type="checkbox"
         checked={checked}
         disabled={disabled}

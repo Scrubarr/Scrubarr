@@ -64,6 +64,19 @@ function formatFailedItems(items = []) {
   ];
 }
 
+function formatPendingOutcomeItems(label, items = []) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  return [
+    `${label}:`,
+    ...items.map((item) => {
+      const title = item.Title || item.title || "Unknown title";
+      const type = item.Type || item.type || "Media";
+      const reason = item.SkipMessage || item.Message || item.message;
+      return `  - ${title} - ${type}${reason ? ` - ${formatValue(reason)}` : ""}`;
+    }),
+  ];
+}
+
 function runLabel(entry) {
   if (entry.type === "deletion") {
     return entry.source === "scheduler" ? "Scheduled deletion check" : "Deletion check";
@@ -113,8 +126,12 @@ function formatRunEntry(entry) {
       compactCount("Deleted total", entry.deletedTotal),
       compactCount("Movies deleted", entry.deletedMovies),
       compactCount("Series deleted", entry.deletedSeries),
+      compactCount("Removed from pending", entry.removedTotal),
+      compactCount("Deferred total", entry.deferredTotal),
       compactCount("Failed total", entry.failedTotal),
       ...formatDeletedItems(entry.deletedItems),
+      ...formatPendingOutcomeItems("Removed from pending", entry.removedItems),
+      ...formatPendingOutcomeItems("Deferred media", entry.deferredItems),
       ...formatFailedItems(entry.failedItems),
     );
   } else {
@@ -132,11 +149,27 @@ function formatRunEntry(entry) {
   if (Array.isArray(entry.warnings) && entry.warnings.length > 0) {
     lines.push("Warnings:", ...entry.warnings.map((warning) => `  - ${formatValue(warning)}`));
   }
+  if (Array.isArray(entry.revalidationWarnings) && entry.revalidationWarnings.length > 0) {
+    lines.push(
+      "Final deletion safety warnings:",
+      ...entry.revalidationWarnings.map((warning) => `  - ${formatValue(warning)}`),
+    );
+  }
+  if (Array.isArray(entry.issues) && entry.issues.length > 0) {
+    lines.push(
+      "Recorded issues:",
+      ...entry.issues.map((issue) =>
+        `  - ${formatValue(typeof issue === "string" ? issue : issue?.label || issue?.key)}`,
+      ),
+    );
+  }
 
   lines.push(
     ...formatSummary("Media server library sync", entry.librarySync),
     ...formatSummary("Telegram notifications", entry.notifications),
     ...formatSummary("Telegram deletion report", entry.telegram),
+    ...formatSummary("Telegram pending queue update report", entry.removalTelegram),
+    ...formatSummary("Telegram deletion deferral report", entry.deferralTelegram),
     ...formatSummary("Telegram failure report", entry.failureTelegram),
     ...formatSummary("Deletion check", entry.cleanup),
   );

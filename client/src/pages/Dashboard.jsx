@@ -18,11 +18,18 @@ import MediaMeta from "../components/MediaMeta.jsx";
 import MediaPoster from "../components/MediaPoster.jsx";
 import QualificationPopover from "../components/QualificationPopover.jsx";
 import StatePanel from "../components/StatePanel.jsx";
+import RunStatusPill from "../components/RunStatusPill.jsx";
 import MediaTypeBadge, { MediaIcon } from "../components/MediaTypeBadge.jsx";
 import { SelectInput } from "../components/FormControls.jsx";
 import { useCloseDetailsOnOutsideClick } from "../hooks/useCloseDetailsOnOutsideClick.js";
 import { requestJson } from "../lib/api.js";
 import { mediaServerFromStatus } from "../lib/mediaServerState.js";
+import {
+  collectRunProblems,
+  displayRunDate,
+  getRunOutcome,
+  scheduledRunLink,
+} from "../lib/runPresentation.js";
 
 function Stat({ label, value, compact = false, className = "" }) {
   return (
@@ -161,8 +168,7 @@ function sameLocalDate(left, right) {
   );
 }
 
-function formatNextDeletion(value, scheduler, now = new Date()) {
-  const target = deletionDateTimeFromEligibleDate(value, scheduler);
+function formatDeletionTarget(target, now = new Date()) {
   if (!target) return "Date unknown";
 
   const tomorrow = new Date(now);
@@ -181,6 +187,13 @@ function formatNextDeletion(value, scheduler, now = new Date()) {
   }).format(target);
 
   return `${prefix}, ${date} at ${formatClockTime(target)}`;
+}
+
+function formatNextDeletion(value, scheduler, now = new Date()) {
+  return formatDeletionTarget(
+    deletionDateTimeFromEligibleDate(value, scheduler),
+    now,
+  );
 }
 
 function formatClockTime(value) {
@@ -531,11 +544,12 @@ function PendingDeletionCard({
   item,
   countdown,
   mode,
-  busy,
+  busyAction,
   onRemove,
   onRemoveAndExclude,
 }) {
   const title = item?.Title || item?.title || "Untitled media";
+  const busy = Boolean(busyAction);
 
   return (
     <article className="dashboard-media-card flex min-w-0 gap-4 rounded-xl border p-5 sm:gap-5">
@@ -571,7 +585,7 @@ function PendingDeletionCard({
             disabled={busy}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-neutral-300 hover:border-red-900 hover:text-red-300 disabled:opacity-50"
           >
-            {busy ? (
+            {busyAction === "remove" ? (
               <LoaderCircle className="animate-spin" size={14} />
             ) : (
               <Trash2 size={14} />
@@ -584,8 +598,14 @@ function PendingDeletionCard({
             disabled={busy}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-neutral-300 hover:border-yellow-700 hover:text-accent disabled:opacity-50"
           >
-            <ShieldPlus size={14} />
-            Remove + exclude
+            {busyAction === "remove-exclude" ? (
+              <LoaderCircle className="animate-spin" size={14} />
+            ) : (
+              <ShieldPlus size={14} />
+            )}
+            {busyAction === "remove-exclude"
+              ? "Removing and syncing..."
+              : "Remove + exclude"}
           </button>
         </div>
       </div>
@@ -596,14 +616,24 @@ function PendingDeletionCard({
 function PendingCountdownPanel({ summary, scheduler }) {
   const [now, setNow] = useState(() => new Date());
   const nextEligible = summary?.nextEligible || null;
-  const nextDeletionTarget = nextEligible
-    ? deletionDateTimeFromEligibleDate(nextEligible.date, scheduler)
-    : null;
   const mode = summary?.mode || "live";
   const preview = mode === "preview";
   const scheduled = scheduler?.enabled === true;
   const visible = !preview && scheduled;
   const dueToday = nextEligible?.daysRemaining === 0;
+  const scheduledRun = scheduler?.nextRun ? new Date(scheduler.nextRun) : null;
+  const validScheduledRun = scheduledRun && !Number.isNaN(scheduledRun.getTime())
+    ? scheduledRun
+    : null;
+  const retryAtNextRun = dueToday && validScheduledRun && scheduledRun > now;
+  const nextDeletionTarget = retryAtNextRun
+    ? validScheduledRun
+    : nextEligible
+      ? deletionDateTimeFromEligibleDate(nextEligible.date, scheduler)
+      : null;
+  const nextItemCount = dueToday
+    ? Number(summary?.expiredTotal || 0)
+    : Number(nextEligible?.count || 0);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -627,15 +657,23 @@ function PendingCountdownPanel({ summary, scheduler }) {
           <h3 className="font-semibold text-neutral-100">Deletion countdown</h3>
           <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
             <div className="dashboard-countdown-metric rounded-lg p-3">
-              <div className="text-xs text-neutral-400">Next deletion</div>
+              <div className="text-xs text-neutral-400">
+                {retryAtNextRun ? "Next deletion check" : "Next deletion"}
+              </div>
               <div className="mt-2 text-lg font-semibold leading-snug tracking-tight text-neutral-100">
                 {nextEligible
-                  ? formatNextDeletion(nextEligible.date, scheduler, now)
+                  ? retryAtNextRun
+                    ? formatDeletionTarget(nextDeletionTarget, now)
+                    : formatNextDeletion(nextEligible.date, scheduler, now)
                   : "None pending"}
               </div>
             </div>
             <div className="dashboard-countdown-metric rounded-lg p-3">
-              <div className="text-xs text-neutral-400">Time until deletion occurs</div>
+              <div className="text-xs text-neutral-400">
+                {retryAtNextRun
+                  ? "Time until next deletion check"
+                  : "Time until deletion occurs"}
+              </div>
               <div className="mt-2 text-neutral-200">
                 {nextEligible ? (
                   <LiveCountdown
@@ -651,7 +689,7 @@ function PendingCountdownPanel({ summary, scheduler }) {
             <div className="dashboard-countdown-metric rounded-lg p-3">
               <div className="text-xs text-neutral-400">Number of items to delete</div>
               <div className="mt-2 text-2xl font-semibold leading-snug tracking-tight text-neutral-100">
-                {nextEligible?.count || 0}
+                {nextItemCount}
               </div>
             </div>
           </div>
@@ -677,7 +715,7 @@ export default function Dashboard() {
     state: "idle",
     message: "",
   });
-  const [pendingBusy, setPendingBusy] = useState("");
+  const [pendingBusy, setPendingBusy] = useState(null);
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const [pendingTypeFilter, setPendingTypeFilter] = useState("all");
   const [pendingSort, setPendingSort] = useState("due");
@@ -699,9 +737,11 @@ export default function Dashboard() {
     }
   }, [storageView]);
 
-  function loadDashboardData() {
+  function loadDashboardData(options = {}) {
     setError("");
-    setPendingLoaded(false);
+    if (options?.preservePending !== true) {
+      setPendingLoaded(false);
+    }
 
     const reportError = (requestError) => {
       setError((current) => current || requestError.message);
@@ -851,6 +891,9 @@ export default function Dashboard() {
         if (pendingSort === "title") {
           return compareTitles(left, right);
         }
+        if (pendingSort === "title-desc") {
+          return compareTitles(right, left);
+        }
         return compareDeletionDate(left, right) || compareTitles(left, right);
       });
   }, [countdownById, pending, pendingSort, pendingTypeFilter]);
@@ -866,10 +909,19 @@ export default function Dashboard() {
   const exclusionsNeedingReview =
     Number(exclusionIntegrity?.staleCount || 0) +
     Number(exclusionIntegrity?.reviewCount || 0);
+  const latestScheduledRun = status?.scheduler?.lastRun || null;
+  const latestScheduledOutcome = getRunOutcome(latestScheduledRun || {});
+  const latestScheduledProblems = collectRunProblems(latestScheduledRun || {});
+  const scheduledRunNeedsAttention = Boolean(latestScheduledRun) &&
+    ["warning", "partial", "failed"].includes(latestScheduledOutcome.key);
+  const latestScheduledRunLink = scheduledRunLink(latestScheduledRun, runLog);
 
   async function removePending(item, exclude = false) {
     setPendingConfirm(null);
-    setPendingBusy(item.ItemId);
+    setPendingBusy({
+      itemId: String(item.ItemId),
+      action: exclude ? "remove-exclude" : "remove",
+    });
     try {
       await requestJson(
         exclude
@@ -877,7 +929,7 @@ export default function Dashboard() {
           : `/api/pending/${encodeURIComponent(item.ItemId)}`,
         { method: exclude ? "POST" : "DELETE" },
       );
-      await loadDashboardData();
+      await loadDashboardData({ preservePending: true });
       setQueueState({
         state: "success",
         message: exclude
@@ -887,7 +939,7 @@ export default function Dashboard() {
     } catch (requestError) {
       setQueueState({ state: "error", message: requestError.message });
     } finally {
-      setPendingBusy("");
+      setPendingBusy(null);
     }
   }
 
@@ -928,6 +980,7 @@ export default function Dashboard() {
         status?.updates?.updateAvailable ||
         pendingIntegrity?.staleCount > 0 ||
         exclusionsNeedingReview > 0 ||
+        scheduledRunNeedsAttention ||
         status?.capabilities?.debugLogging) && (
         <section className="overflow-hidden rounded-2xl border border-amber-800/60 bg-amber-950/20">
           <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-amber-100">
@@ -987,6 +1040,24 @@ export default function Dashboard() {
                 ? "exclusion needs"
                 : "exclusions need"}{" "}
               review.
+            </DashboardNotice>
+          )}
+          {scheduledRunNeedsAttention && (
+            <DashboardNotice
+              action={latestScheduledRunLink ? <a
+                  href={latestScheduledRunLink}
+                  className="inline-flex shrink-0 items-center justify-center rounded-lg border border-accent/70 bg-accent px-3 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-amber-300"
+                >
+                  View affected run
+                </a> : null}
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <RunStatusPill entry={latestScheduledRun} />
+                <span>
+                  Last scheduled run, {displayRunDate(latestScheduledRun.completedAt, status?.timezone)}.
+                  {" "}{latestScheduledProblems[0] || latestScheduledRun.message || "Some work may be incomplete."}
+                </span>
+              </span>
             </DashboardNotice>
           )}
           {status?.capabilities?.debugLogging && (
@@ -1262,6 +1333,7 @@ export default function Dashboard() {
                   <option value="marked-newest">Marked newest</option>
                   <option value="marked-oldest">Marked oldest</option>
                   <option value="title">Title A-Z</option>
+                  <option value="title-desc">Title Z-A</option>
                 </SelectInput>
               </label>
             </div>
@@ -1284,7 +1356,11 @@ export default function Dashboard() {
                 item={item}
                 countdown={countdownById.get(String(item.ItemId))}
                 mode={pendingSummary?.mode}
-                busy={pendingBusy === item.ItemId}
+                busyAction={
+                  pendingBusy?.itemId === String(item.ItemId)
+                    ? pendingBusy.action
+                    : ""
+                }
                 onRemove={() => setPendingConfirm({ item, exclude: false })}
                 onRemoveAndExclude={() => setPendingConfirm({ item, exclude: true })}
               />

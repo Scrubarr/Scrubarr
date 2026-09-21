@@ -18,9 +18,52 @@ function asList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function providerId(item, provider) {
+  const ids = item?.ProviderIds;
+  if (!ids || typeof ids !== "object") return null;
+  const key = Object.keys(ids).find(
+    (candidate) => candidate.toLowerCase() === provider.toLowerCase(),
+  );
+  return key && ids[key] !== undefined && ids[key] !== null
+    ? String(ids[key])
+    : null;
+}
+
+function dashboardSearchIdentity(item) {
+  const type = String(item?.Type || "unknown").toLowerCase();
+  if (item?.Arr && item?.ArrId !== undefined && item?.ArrId !== null) {
+    return `${type}|arr|${String(item.Arr).toLowerCase()}|${String(item.ArrId)}`;
+  }
+
+  const provider = type === "movie" ? "tmdb" : type === "series" ? "tvdb" : null;
+  const externalId = provider ? providerId(item, provider) : null;
+  if (externalId) return `${type}|${provider}|${externalId}`;
+
+  return `${type}|item|${String(item?.ItemId || "")}`;
+}
+
+function dashboardSearchPreference(item) {
+  const itemId = String(item?.ItemId || "");
+  if (item?.Pending && itemId === String(item?.PendingItemId || "")) return 3;
+  if (item?.Excluded && itemId === String(item?.ExclusionItemId || "")) return 2;
+  return item?.HasPrimaryImage ? 1 : 0;
+}
+
+export function dedupeDashboardSearchItems(items) {
+  const unique = new Map();
+  for (const item of asList(items)) {
+    const key = dashboardSearchIdentity(item);
+    const current = unique.get(key);
+    if (!current || dashboardSearchPreference(item) > dashboardSearchPreference(current)) {
+      unique.set(key, item);
+    }
+  }
+  return [...unique.values()];
+}
+
 export function markDashboardSearchState(items, { pending, exclusions }) {
   const active = activePendingItems(pending);
-  return markExcluded(items, asList(exclusions)).map((item) => {
+  const marked = markExcluded(items, asList(exclusions)).map((item) => {
     const pendingMatch = active.find((pendingItem) =>
       isSameExclusion(item, pendingItem),
     );
@@ -33,6 +76,7 @@ export function markDashboardSearchState(items, { pending, exclusions }) {
       State: state,
     };
   });
+  return dedupeDashboardSearchItems(marked);
 }
 
 export function createDashboardRouter({

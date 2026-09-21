@@ -1,8 +1,13 @@
 import {
   entryFromError,
   entryFromPreviewResult,
+  normalizeRunIssues,
   runStatusFromStages,
 } from "./run-log.js";
+import { scanFailureIssue, scheduledRunIssues } from "./run-alerts.js";
+
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000];
+const ALERT_REMINDER_MS = 24 * 60 * 60_000;
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: false,
@@ -183,13 +188,25 @@ function cleanupSummary(result) {
     dryRun: result.dryRun === true,
     expired: Number(result.expiredTotal || 0),
     deleted: Number(result.deletedTotal || 0),
+    removed: Number(result.removedTotal || 0),
     failed: Number(result.failedTotal || 0),
     deferred: Number(result.deferredTotal || 0),
+    revalidationWarnings: Array.isArray(result.revalidationWarnings)
+      ? result.revalidationWarnings
+      : [],
     message: result.message || "",
   };
 }
 
-function runSummary(result, startedAt, completedAt, librarySync, notifications, cleanup) {
+function runSummary(
+  result,
+  startedAt,
+  completedAt,
+  librarySync,
+  notifications,
+  cleanup,
+  issues,
+) {
   return {
     status: runStatusFromStages({ librarySync, notifications, cleanup }),
     startedAt,
@@ -203,6 +220,7 @@ function runSummary(result, startedAt, completedAt, librarySync, notifications, 
     queuedMovies: Number(result.queue?.movies || 0),
     queuedSeries: Number(result.queue?.series || 0),
     warnings: result.warnings || [],
+    issues: normalizeRunIssues(issues),
     librarySync: librarySyncSummary(librarySync),
     notifications: notificationSummary(notifications),
     cleanup: cleanupSummary(cleanup),
@@ -220,6 +238,8 @@ export class SchedulerService {
     cleanup,
     arrTagging,
     pendingMutations = passThroughMutations,
+    runHealthNotification = async () => ({ sent: false }),
+    onAlertError = async () => {},
   }) {
     this.store = store;
     this.scanCoordinator = scanCoordinator;
@@ -230,6 +250,9 @@ export class SchedulerService {
     this.cleanup = cleanup || (async () => null);
     this.arrTagging = arrTagging || (async () => null);
     this.pendingMutations = pendingMutations;
+    this.runHealthNotification = runHealthNotification;
+    this.onAlertError = onAlertError;
+    this.alertQueue = Promise.resolve();
     this.timer = null;
     this.nextRun = null;
     this.scheduleGeneration = 0;
@@ -238,6 +261,7 @@ export class SchedulerService {
       config: structuredClone(DEFAULT_CONFIG),
       lastRun: null,
       lastScheduledDate: null,
+      runAlert: null,
     };
   }
 
@@ -246,6 +270,7 @@ export class SchedulerService {
     this.state = {
       config: normalizeScheduleConfig(saved.config),
       lastRun: saved.lastRun || null,
+      runAlert: saved.runAlert || null,
       lastScheduledDate:
         typeof saved.lastScheduledDate === "string"
           ? saved.lastScheduledDate
@@ -296,7 +321,9 @@ export class SchedulerService {
     }
 
     if (scheduledDate) this.activeScheduledDate = scheduledDate;
+    const generation = this.scheduleGeneration;
     const startedAt = new Date().toISOString();
+    let queueCommitted = false;
     try {
       try {
         const { added, result } = await this.pendingMutations.run(
@@ -306,11 +333,14 @@ export class SchedulerService {
               timezone: this.timezone,
             }),
         );
+        queueCommitted = true;
+        let tagging = null;
         try {
-          await this.arrTagging(added || []);
+          tagging = await this.arrTagging(added || []);
         } catch {
           // Arr pending tags are helpful context, but they should not fail a
           // scheduled run after the Scrubarr queue has already been updated.
+          tagging = { status: "failed" };
         }
         let librarySync = null;
         try {
@@ -350,6 +380,15 @@ export class SchedulerService {
           };
         }
         const completedAt = new Date().toISOString();
+        const issues = normalizeRunIssues(
+          scheduledRunIssues({
+            result,
+            tagging,
+            librarySync,
+            notifications,
+            cleanup,
+          }),
+        );
         this.state.lastRun = runSummary(
           result,
           startedAt,
@@ -357,6 +396,7 @@ export class SchedulerService {
           librarySync,
           notifications,
           cleanup,
+          issues,
         );
         if (scheduledDate) this.state.lastScheduledDate = scheduledDate;
         await this.runLog.append(
@@ -368,28 +408,36 @@ export class SchedulerService {
             librarySync,
             notifications,
             cleanup,
+            issues,
           }),
         );
+        await this.reportRunHealth(issues);
       } catch (error) {
+        error.retryableBeforeCommit = !queueCommitted &&
+          (error.retryableBeforeCommit === true || error.code === "pending_queue_busy");
+        const issues = normalizeRunIssues([scanFailureIssue(error)]);
         const failedEntry = entryFromError({
           source: "scheduler",
           type: "scan",
           error,
           startedAt,
+          issues,
         });
         this.state.lastRun = {
           status: "failed",
           startedAt,
           completedAt: failedEntry.completedAt,
-          readOnly: true,
+          readOnly: !queueCommitted,
           message: error.message || "Scheduled scan failed",
+          issues,
         };
+        await this.reportRunHealth(issues);
         await this.runLog.append(failedEntry);
         await this.persist();
         throw error;
       }
       await this.persist();
-      this.scheduleTimer();
+      if (this.scheduleGeneration === generation) this.scheduleTimer();
       return this.state.lastRun;
     } finally {
       if (scheduledDate === this.activeScheduledDate) {
@@ -402,10 +450,37 @@ export class SchedulerService {
     await this.store.write(this.state);
   }
 
-  scheduleTimer() {
+  reportRunHealth(issues) {
+    const delivery = this.alertQueue.then(() => this.updateRunAlert(issues));
+    this.alertQueue = delivery.catch(() => {});
+    return delivery;
+  }
+
+  async updateRunAlert(issues) {
+    const key = [...new Set(issues.map((issue) => issue.key))].sort().join("|");
+    const previous = this.state.runAlert;
+    if (!key && !previous) return;
+    if (key && key === previous?.key && Date.now() - Date.parse(previous.sentAt) < ALERT_REMINDER_MS) return;
+    try {
+      const delivery = await this.runHealthNotification({ issues });
+      if (delivery?.sent) {
+        this.state.runAlert = key ? { key, sentAt: new Date().toISOString() } : null;
+        await this.persist();
+      }
+    } catch (error) {
+      // A broken notification transport must not stop the scheduler or replay completed work.
+      try {
+        await this.onAlertError(error);
+      } catch {
+        // Logging is best-effort when the notification transport is already unavailable.
+      }
+    }
+  }
+
+  scheduleTimer(retry = null) {
     this.stop();
     const scheduleGeneration = this.scheduleGeneration;
-    const nextRun = nextPendingScheduledRun(
+    let nextRun = nextPendingScheduledRun(
       this.state.config,
       this.timezone,
       {
@@ -413,9 +488,16 @@ export class SchedulerService {
       },
     );
     if (!nextRun) return;
+    const retryAllowed = retry &&
+      retry.attempt <= RETRY_DELAYS_MS.length &&
+      retry.scheduledDate === scheduledDateKey(new Date(), this.timezone) &&
+      retry.scheduledDate !== this.state.lastScheduledDate &&
+      retry.runAt < nextRun;
+    if (retryAllowed) nextRun = retry.runAt;
     this.nextRun = nextRun;
     const configKey = scheduleConfigKey(this.state.config);
-    const scheduledDate = scheduledDateKey(nextRun, this.timezone);
+    const scheduledDate = retryAllowed ? retry.scheduledDate : scheduledDateKey(nextRun, this.timezone);
+    const attempt = retryAllowed ? retry.attempt : 0;
     const delay = Math.min(nextRun.getTime() - Date.now(), 2_147_000_000);
     this.timer = setTimeout(async () => {
       if (
@@ -424,11 +506,18 @@ export class SchedulerService {
       ) {
         return;
       }
+      if (retryAllowed && scheduledDateKey(new Date(), this.timezone) !== scheduledDate) {
+        this.scheduleTimer();
+        return;
+      }
       try {
         await this.runNow({ scheduledDate });
       } catch (error) {
         console.error(`Scheduled scan failed: ${error.message}`);
-        this.scheduleTimer();
+        if (scheduleGeneration !== this.scheduleGeneration) return;
+        this.scheduleTimer(error.retryableBeforeCommit && attempt < RETRY_DELAYS_MS.length
+          ? { scheduledDate, attempt: attempt + 1, runAt: new Date(Date.now() + RETRY_DELAYS_MS[attempt]) }
+          : null);
       }
     }, Math.max(delay, 1000));
     this.timer.unref?.();

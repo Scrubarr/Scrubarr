@@ -94,3 +94,76 @@ test("dashboard search marks pending, excluded, and available results", () => {
     ],
   );
 });
+
+test("dashboard search collapses multiple media-server versions of one Arr title", () => {
+  const results = markDashboardSearchState(
+    [
+      {
+        ItemId: "movie-version-1",
+        Title: "A Movie",
+        Type: "Movie",
+        Arr: "Radarr",
+        ArrId: 42,
+        ProviderIds: { Tmdb: "1234" },
+        HasPrimaryImage: true,
+      },
+      {
+        ItemId: "movie-version-2",
+        Title: "A Movie",
+        Type: "Movie",
+        Arr: "Radarr",
+        ArrId: 42,
+        ProviderIds: { Tmdb: "1234" },
+        HasPrimaryImage: true,
+      },
+      {
+        ItemId: "different-movie",
+        Title: "Another Movie",
+        Type: "Movie",
+        Arr: "Radarr",
+        ArrId: 43,
+        ProviderIds: { Tmdb: "5678" },
+      },
+    ],
+    {
+      pending: [],
+      exclusions: [
+        {
+          ItemId: "movie-version-2",
+          Title: "A Movie",
+          Type: "Movie",
+          Arr: "Radarr",
+          ArrId: 42,
+        },
+      ],
+    },
+  );
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].ItemId, "movie-version-2");
+  assert.equal(results[0].State, "excluded");
+  assert.equal(results[1].ItemId, "different-movie");
+});
+
+test("dashboard search collapses duplicate provider IDs when no Arr match exists", () => {
+  const results = markDashboardSearchState(
+    [
+      {
+        ItemId: "series-version-1",
+        Title: "A Series",
+        Type: "Series",
+        ProviderIds: { Tvdb: "9876" },
+      },
+      {
+        ItemId: "series-version-2",
+        Title: "A Series",
+        Type: "Series",
+        ProviderIds: { tvdb: "9876" },
+      },
+    ],
+    { pending: [], exclusions: [] },
+  );
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].ItemId, "series-version-1");
+});

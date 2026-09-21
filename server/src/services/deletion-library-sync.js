@@ -709,6 +709,7 @@ async function syncType({ type, items, settings, manifestDirectory }) {
   const directoryState = await ensureQueueDirectory(directory);
   const summary = {
     type,
+    pending: items.length,
     queuePath: directory,
     embyPath: mediaServerDirectory,
     linksCreated: 0,

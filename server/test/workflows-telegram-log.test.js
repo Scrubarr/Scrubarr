@@ -26,6 +26,19 @@ test("logs Telegram deletion report summaries without message contents", async (
       messageCount: 1,
       message: "Sent Telegram report for 6 item(s).",
     },
+    removalTelegram: {
+      enabled: true,
+      attempted: true,
+      sent: true,
+      messageCount: 1,
+      message: "Sent Telegram report for 2 item(s).",
+    },
+    deferralTelegram: {
+      enabled: true,
+      sent: true,
+      messageCount: 1,
+      message: "Sent Telegram report for 1 item(s).",
+    },
     failureTelegram: {
       enabled: true,
       sent: false,
@@ -36,6 +49,8 @@ test("logs Telegram deletion report summaries without message contents", async (
 
   assert.deepEqual(appLog.entries.map((entry) => entry.message), [
     "Telegram deletion report sent",
+    "Telegram pending queue update report sent",
+    "Telegram deletion deferral report sent",
     "Telegram deletion failure report not sent",
   ]);
   assert.equal(appLog.entries[0].fields.messageCount, 1);
@@ -49,9 +64,10 @@ test("logs failed Telegram reports as warnings", async () => {
     dryRun: true,
     telegram: {
       enabled: true,
+      attempted: true,
       sent: false,
       messageCount: 0,
-      message: "Telegram dry-run deletion report failed.",
+      message: "Forbidden",
     },
     failureTelegram: null,
   });

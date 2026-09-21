@@ -35,6 +35,7 @@ import {
   refreshJellyfinLibrary,
   refreshJellyfinLibraryItem,
   searchJellyfin,
+  syncJellyfinLeavingSoonUserPreferences,
 } from "./jellyfin.js";
 
 function trimUrl(value) {
@@ -84,6 +85,7 @@ const ADAPTERS = {
     getMediaOverview: getJellyfinMediaOverview,
     getActiveSessions: getJellyfinActiveSessions,
     fetchPrimaryImage: fetchJellyfinPrimaryImage,
+    syncDeletionLibraryPresentation: syncJellyfinLeavingSoonUserPreferences,
   },
 };
 

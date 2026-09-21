@@ -17,11 +17,18 @@ import {
 } from "../services/arr-pending-tags.js";
 import { sendDuePendingNotifications } from "../services/telegram.js";
 
-function telegramReportLogMessage(summary, { dryRun = false, failure = false } = {}) {
+function telegramReportLogMessage(
+  summary,
+  { dryRun = false, removed = false, deferred = false, failure = false } = {},
+) {
   if (!summary || summary.enabled !== true) return null;
 
-  const reportName = failure
+  const reportName = deferred
+    ? "Telegram deletion deferral report"
+    : failure
     ? "Telegram deletion failure report"
+    : removed
+    ? "Telegram pending queue update report"
     : dryRun
       ? "Telegram preview deletion report"
       : "Telegram deletion report";
@@ -30,7 +37,7 @@ function telegramReportLogMessage(summary, { dryRun = false, failure = false } =
   if (summary.sent) {
     return { level: "info", message: `${reportName} sent` };
   }
-  if (/failed|error/i.test(detail)) {
+  if (summary.attempted === true || /failed|error/i.test(detail)) {
     return { level: "warn", message: `${reportName} failed` };
   }
   return { level: "info", message: `${reportName} not sent` };
@@ -41,6 +48,14 @@ export async function logTelegramDeletionReportSummaries(appLog, cleanupResult) 
     {
       result: cleanupResult?.telegram,
       options: { dryRun: cleanupResult?.dryRun === true },
+    },
+    {
+      result: cleanupResult?.removalTelegram,
+      options: { removed: true },
+    },
+    {
+      result: cleanupResult?.deferralTelegram,
+      options: { deferred: true },
     },
     {
       result: cleanupResult?.failureTelegram,
@@ -204,6 +219,9 @@ export function createMaintenanceWorkflows({
       const settings = mergeSettings(defaults, await stores.settingsStore.read());
       const pending = await stores.pendingStore.read();
       const exclusions = await stores.exclusionsStore.read();
+      const inProgress = stores.inProgressStore
+        ? await stores.inProgressStore.read()
+        : [];
       const dueItems = expiredPendingItems({
         settings,
         pending,
@@ -215,6 +233,7 @@ export function createMaintenanceWorkflows({
             settings,
             pending,
             exclusions,
+            inProgress,
             dueItems,
           });
       const cleanupResult = await runDeletionCheck({
@@ -228,12 +247,13 @@ export function createMaintenanceWorkflows({
           baselinePending: pending,
         });
       }
-      if (cleanupResult.changed) {
+      if (cleanupResult.pendingChanged || cleanupResult.changed) {
         await stores.pendingStore.write(cleanupResult.pending);
       }
       if (
         cleanupResult.expiredTotal > 0 ||
         cleanupResult.deletedTotal > 0 ||
+        cleanupResult.removedTotal > 0 ||
         cleanupResult.failedTotal > 0
       ) {
         await runLog.append(
@@ -244,11 +264,33 @@ export function createMaintenanceWorkflows({
         dryRun: cleanupResult.dryRun,
         expired: cleanupResult.expiredTotal,
         deleted: cleanupResult.deletedTotal,
+        removedFromPending: cleanupResult.removedTotal,
         failed: cleanupResult.failedTotal,
+        deferred: cleanupResult.deferredTotal,
       });
       await logTelegramDeletionReportSummaries(appLog, cleanupResult);
       return cleanupResult;
     });
+
+    if (result.removedTotal > 0) {
+      try {
+        result.untagging = await untagPendingItems(result.removedItems, {
+          source: "deletion-revalidation",
+        });
+      } catch (error) {
+        result.untagging = {
+          enabled: true,
+          updated: 0,
+          skipped: 0,
+          failed: result.removedTotal,
+          errors: [{ message: error.message || "Arr pending tag removal failed" }],
+        };
+        await appLog.warn("Arr pending tag removal failed after cleanup revalidation", {
+          removedFromPending: result.removedTotal,
+          message: error.message || "Arr pending tag removal failed",
+        });
+      }
+    }
 
     if (result.changed) {
       result.librarySync = await syncCurrentDeletionLibraries({ source: "deletion" });
