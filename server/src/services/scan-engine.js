@@ -1,5 +1,6 @@
 import { isSameExclusion } from "./exclusions.js";
 import { activePendingItems } from "./pending-state.js";
+import { normalizeWatchHistory } from "./watch-history.js";
 
 function parseDate(value) {
   if (!value) return null;
@@ -35,19 +36,23 @@ function playbackForItem(item) {
     item.Type === "Series" &&
     item.EpisodeActivity
   ) {
+    const history = normalizeWatchHistory({
+      PlayCount: item.EpisodeActivity.PlayCount,
+      LastPlayedDate: item.EpisodeActivity.LastPlayedDate,
+      Played: item.EpisodeActivity.PlayedEpisodeCount > 0,
+    });
     return {
-      known: item.EpisodeActivity.WatchHistoryKnown !== false,
-      playCount: Number(item.EpisodeActivity.PlayCount || 0),
-      lastPlayedDate: item.EpisodeActivity.LastPlayedDate,
+      ...history,
+      known: item.EpisodeActivity.WatchHistoryKnown !== false && history.known,
       dateSource: "emby-episode-last-played",
       reasonPrefix: "Latest episode watched",
     };
   }
 
+  const history = normalizeWatchHistory(item.UserData);
   return {
-    known: item.Type === "Series" ? false : item.WatchHistoryKnown !== false,
-    playCount: Number(item.UserData?.PlayCount || 0),
-    lastPlayedDate: item.UserData?.LastPlayedDate,
+    ...history,
+    known: item.Type !== "Series" && item.WatchHistoryKnown !== false && history.known,
     dateSource: "emby-last-played",
     reasonPrefix: "Last played",
   };
@@ -74,12 +79,11 @@ function ageDecision(item, settings, now) {
     return { eligible: false, skip: "watch-history-unknown" };
   }
   const lastPlayed = parseDate(playback.lastPlayedDate);
-  const playCount = playback.playCount;
   const watchedOld =
     lastPlayed && daysOld(lastPlayed, now) >= settings.Mode.WatchedDays;
   const added = fallbackAddedDate(item);
   const unwatchedOld =
-    playCount < 1 &&
+    !playback.hasPlayback &&
     added &&
     daysOld(added.date, now) >= settings.Mode.UnwatchedDays;
   const minimumAgeReason = minimumAge

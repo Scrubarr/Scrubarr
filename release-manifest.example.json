@@ -1,6 +1,6 @@
 {
-  "version": "1.4.0",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.4.0",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.4.0",
-  "notes": "Adds clearer run health and logs, resilient scheduling alerts, safer due-item revalidation, and Jellyfin Leaving Soon presentation controls."
+  "version": "1.4.1",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.4.1",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.4.1",
+  "notes": "Fixes Emby watch-history requests and prevents watched media from being mistaken for never watched. Incomplete movie or episode history blocks cleanup safely."
 }

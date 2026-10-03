@@ -1,5 +1,6 @@
 import { getProviderId } from "./arr-resolver.js";
 import { externalServiceFailure, fetchExternal } from "./external-error.js";
+import { normalizeWatchHistory } from "./watch-history.js";
 import {
   mediaServerConnection,
   mediaServerDeletionLibraryNames,
@@ -41,20 +42,12 @@ function latestDate(left, right) {
   return leftTime >= rightTime ? left : right;
 }
 
-function hasUserData(item) {
-  return (
-    item?.UserData !== null &&
-    item?.UserData !== undefined &&
-    typeof item.UserData === "object"
-  );
-}
-
 function createEpisodeActivity(expectedUserIds = []) {
   return {
     episodeIds: new Set(),
     playedEpisodeIds: new Set(),
     watchHistoryKnown: true,
-    seenUserIds: new Set(),
+    episodeUserIds: new Map(),
     expectedUserIds: new Set(expectedUserIds.map(String)),
     playCount: 0,
     lastPlayedDate: null,
@@ -65,22 +58,25 @@ function mergeEpisodeActivity(existing, episode, userId, expectedUserIds) {
   if (!episode.SeriesId) return existing;
   const activity = existing || createEpisodeActivity(expectedUserIds);
   const episodeId = episode.Id ? String(episode.Id) : null;
-  const playCount = Number(episode.UserData?.PlayCount || 0);
-  const lastPlayedDate = toDateValue(episode.UserData?.LastPlayedDate);
+  const history = normalizeWatchHistory(episode.UserData);
 
-  activity.seenUserIds.add(String(userId));
-  activity.watchHistoryKnown = activity.watchHistoryKnown && hasUserData(episode);
-  if (episodeId) activity.episodeIds.add(episodeId);
-  if (episodeId && playCount > 0) activity.playedEpisodeIds.add(episodeId);
-  activity.playCount += playCount;
-  activity.lastPlayedDate = latestDate(activity.lastPlayedDate, lastPlayedDate);
+  activity.watchHistoryKnown = activity.watchHistoryKnown && history.known;
+  if (episodeId) {
+    activity.episodeIds.add(episodeId);
+    const users = activity.episodeUserIds.get(episodeId) || new Set();
+    users.add(String(userId));
+    activity.episodeUserIds.set(episodeId, users);
+    if (history.hasPlayback) activity.playedEpisodeIds.add(episodeId);
+  }
+  activity.playCount += history.playCount ?? 0;
+  activity.lastPlayedDate = latestDate(activity.lastPlayedDate, history.lastPlayedDate);
 
   return activity;
 }
 
 function serializeEpisodeActivity(activity) {
-  const allUsersRepresented = [...activity.expectedUserIds].every((userId) =>
-    activity.seenUserIds.has(userId),
+  const allUsersRepresented = [...activity.episodeUserIds.values()].every((users) =>
+    [...activity.expectedUserIds].every((userId) => users.has(userId)),
   );
   return {
     WatchHistoryKnown: activity.watchHistoryKnown && allUsersRepresented,
@@ -92,6 +88,7 @@ function serializeEpisodeActivity(activity) {
 }
 
 function mergeUserItem(existing, item, userId) {
+  const history = normalizeWatchHistory(item.UserData);
   if (!existing) {
     return {
       ItemId: String(item.Id),
@@ -112,25 +109,26 @@ function mergeUserItem(existing, item, userId) {
         : [],
       HasPrimaryImage: Boolean(item.ImageTags?.Primary),
       InProgress: false,
-      WatchHistoryKnown: hasUserData(item),
+      WatchHistoryKnown: history.known,
       seenUserIds: new Set([String(userId)]),
       UserData: {
-        PlayCount: Number(item.UserData?.PlayCount || 0),
-        LastPlayedDate: toDateValue(item.UserData?.LastPlayedDate),
+        PlayCount: history.playCount,
+        LastPlayedDate: history.lastPlayedDate,
+        Played: history.played,
       },
     };
   }
 
-  existing.UserData.PlayCount = Math.max(
-    existing.UserData.PlayCount,
-    Number(item.UserData?.PlayCount || 0),
-  );
+  if (history.playCount !== null) {
+    existing.UserData.PlayCount = Math.max(existing.UserData.PlayCount ?? 0, history.playCount);
+  }
+  existing.UserData.Played = existing.UserData.Played || history.played;
   existing.UserData.LastPlayedDate = latestDate(
     existing.UserData.LastPlayedDate,
-    toDateValue(item.UserData?.LastPlayedDate),
+    history.lastPlayedDate,
   );
   existing.seenUserIds.add(String(userId));
-  existing.WatchHistoryKnown = existing.WatchHistoryKnown && hasUserData(item);
+  existing.WatchHistoryKnown = existing.WatchHistoryKnown && history.known;
   return existing;
 }
 
@@ -223,7 +221,10 @@ async function getResumeItemIds(base, headers, userIds, serviceLabel) {
 }
 
 async function getMediaServerItems(settings) {
-  const { base, headers, config, label } = mediaServerConnection(settings);
+  const { base, headers, config, label, adapter } = mediaServerConnection(settings);
+  const watchHistoryFields = adapter.key === "Emby"
+    ? ",UserDataPlayCount,UserDataLastPlayedDate"
+    : "";
   const deletionLibraryNames = mediaServerDeletionLibraryNames(settings);
   const libraryNames = new Set(
     (config.SearchLibraries || [])
@@ -280,9 +281,10 @@ async function getMediaServerItems(settings) {
       url.searchParams.set("IncludeItemTypes", type);
       url.searchParams.set("Recursive", "true");
       url.searchParams.set("Limit", "10000");
+      url.searchParams.set("EnableUserData", "true");
       url.searchParams.set(
         "Fields",
-        "Path,DateCreated,PremiereDate,ProductionYear,UserData,ProviderIds,ImageTags,Genres",
+        `Path,DateCreated,PremiereDate,ProductionYear,UserData,ProviderIds,ImageTags,Genres${watchHistoryFields}`,
       );
       requests.push({
         userId,
@@ -300,7 +302,8 @@ async function getMediaServerItems(settings) {
         episodesUrl.searchParams.set("IncludeItemTypes", "Episode");
         episodesUrl.searchParams.set("Recursive", "true");
         episodesUrl.searchParams.set("Limit", "50000");
-        episodesUrl.searchParams.set("Fields", "SeriesId,UserData");
+        episodesUrl.searchParams.set("EnableUserData", "true");
+        episodesUrl.searchParams.set("Fields", `SeriesId,UserData${watchHistoryFields}`);
         episodeActivityRequests.push({
           userId,
           request: requestJson(episodesUrl, headers, {

@@ -169,3 +169,31 @@ test("final revalidation fails closed when current media data is unavailable", a
   assert.equal(result.allowedItems.length, 0);
   assert.equal(result.deferredItems[0].SkipCode, "revalidation-unavailable");
 });
+
+test("final revalidation protects a recent date bump even with zero completed plays", async () => {
+  const due = pendingItem();
+  const config = settings();
+  config.Mode.WatchedDays = 547;
+  config.Mode.UnwatchedDays = 365;
+  const result = await revalidateDuePendingItems({
+    settings: config, pending: [due], dueItems: [due],
+    now: new Date("2026-06-20T00:00:00.000Z"),
+    collectItems: async () => ({ items: [currentItem({
+      UserData: { PlayCount: 0, Played: true, LastPlayedDate: "2026-06-19T00:00:00Z" },
+    })] }),
+  });
+  assert.equal(result.allowedItems.length, 0);
+  assert.equal(result.deferredItems[0].SkipCode, "age-rule-not-met");
+});
+
+test("final revalidation does not authorize deletion from incomplete watch history", async () => {
+  for (const UserData of [{ Played: true, PlayCount: 0 }, { Played: false }, { PlayCount: 1 }]) {
+    const due = pendingItem();
+    const result = await revalidateDuePendingItems({
+      settings: settings(), pending: [due], dueItems: [due],
+      collectItems: async () => ({ items: [currentItem({ UserData })] }),
+    });
+    assert.equal(result.allowedItems.length, 0);
+    assert.equal(result.deferredItems[0].SkipCode, "watch-history-unknown");
+  }
+});

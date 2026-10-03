@@ -23,6 +23,60 @@ function item(overrides = {}) {
   };
 }
 
+for (const mode of ["all", "watched", "unwatched"]) {
+  test(`${mode} mode cannot mistake a recent played flag or date for never watched`, () => {
+    const config = settings();
+    config.Mode.Type = mode;
+    config.Mode.DaysOlderThan = 0;
+    config.Mode.WatchedDays = 547;
+    config.Mode.UnwatchedDays = 365;
+    const result = previewScan({
+      settings: config, now,
+      items: [
+        item({ ItemId: "flag", UserData: { Played: true, PlayCount: 0, LastPlayedDate: "2026-06-06T00:00:00Z" } }),
+        item({ ItemId: "date", UserData: { Played: false, PlayCount: 0, LastPlayedDate: "2026-06-06T00:00:00Z" } }),
+      ],
+    });
+    assert.equal(result.candidates.length, 0);
+  });
+
+  test(`${mode} mode fails closed when watch history is incomplete`, () => {
+    const config = settings();
+    config.Mode.Type = mode;
+    config.Mode.DaysOlderThan = 0;
+    const result = previewScan({
+      settings: config, now,
+      items: [
+        item({ ItemId: "missing-count", UserData: { Played: false } }),
+        item({ ItemId: "missing-date", UserData: { Played: true, PlayCount: 0 } }),
+        item({ ItemId: "played-count", UserData: { PlayCount: 1 } }),
+      ],
+    });
+    assert.equal(result.candidates.length, 0);
+    assert.equal(result.summary.skipped["watch-history-unknown"], 3);
+  });
+}
+
+test("547-day watched retention is applied at the exact threshold, including zero-count playback", () => {
+  const config = settings();
+  config.Mode.Type = "all";
+  config.Mode.DaysOlderThan = 0;
+  config.Mode.WatchedDays = 547;
+  config.Mode.UnwatchedDays = 365;
+  const atThreshold = new Date(now.getTime() - 547 * 86400000).toISOString();
+  const result = previewScan({
+    settings: config, now,
+    items: [
+      item({ ItemId: "old", UserData: { Played: true, PlayCount: 0, LastPlayedDate: atThreshold } }),
+      item({ ItemId: "recent", UserData: { Played: true, PlayCount: 0, LastPlayedDate: new Date(now.getTime() - 546 * 86400000).toISOString() } }),
+    ],
+  });
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].ItemId, "old");
+  assert.equal(result.candidates[0].DateSource, "emby-last-played");
+  assert.match(result.candidates[0].Reason, /547 days ago/);
+});
+
 test("DaysOlderThan is a minimum Arr-age gate, not a playback override", () => {
   const config = settings();
   config.Mode.Type = "all";

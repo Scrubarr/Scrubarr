@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.1
+
+- Fixed Emby watch-history requests to include optional play counts and
+  last-played dates for movies and episodes, so cleanup uses the correct
+  watched-age rules, including media-server plugin date bumps.
+- Prevented watched media from being mistaken for never watched when the
+  reported play count is zero. Played flags and last-played dates remain
+  evidence of playback during scans and final deletion checks.
+- Blocked cleanup safely when watch history is missing, invalid, or incomplete
+  for a selected user, including missing per-user episode history for a series.
+- Kept Jellyfin requests compatible without sending Emby-only field names,
+  added regression coverage, and clarified watched-age behavior in the guide.
+
 ## 1.4.0
 
 - Redesigned Logs to show the five newest runs by default, with clear

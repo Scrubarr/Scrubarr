@@ -62,6 +62,14 @@ Shared age rules apply to both movies and series.
 - **Minimum Arr age** is an extra safety check. The item must also have existed
   in Radarr or Sonarr for at least this many days.
 
+Watched age uses the most recent last-played date reported for the selected
+users; for series, it checks episode history. If a media-server plugin updates
+that date to bring a show back into Continue Watching, the watched-age clock
+starts again from that date.
+
+Missing or incomplete watch history is not treated as never watched. Scrubarr
+skips that media for safety and rechecks current history before deletion.
+
 ### Queue and safety
 
 Queue and safety controls how many items can be added and how long they stay in
