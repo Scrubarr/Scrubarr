@@ -188,7 +188,7 @@ export async function runDeletionCheck({
         enabled: true,
         attempted: true,
         sent: false,
-        messageCount: 0,
+        messageCount: error.messageCount ?? 0,
         message: error.message || "Telegram dry-run deletion report failed.",
       };
     }
@@ -290,7 +290,7 @@ export async function runDeletionCheck({
       enabled: true,
       attempted: true,
       sent: false,
-      messageCount: 0,
+      messageCount: error.messageCount ?? 0,
       message: error.message || "Telegram deletion report failed.",
     };
   }
@@ -308,7 +308,7 @@ export async function runDeletionCheck({
       enabled: true,
       attempted: true,
       sent: false,
-      messageCount: 0,
+      messageCount: error.messageCount ?? 0,
       message: error.message || "Telegram pending queue update report failed.",
     };
   }
@@ -328,7 +328,7 @@ export async function runDeletionCheck({
       enabled: true,
       attempted: true,
       sent: false,
-      messageCount: 0,
+      messageCount: error.messageCount ?? 0,
       message: error.message || "Telegram deletion deferral report failed.",
     };
   }
@@ -363,7 +363,7 @@ export async function runDeletionCheck({
       enabled: true,
       attempted: true,
       sent: false,
-      messageCount: 0,
+      messageCount: error.messageCount ?? 0,
       message: error.message || "Telegram deletion failure report failed.",
     };
   }

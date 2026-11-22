@@ -1,10 +1,20 @@
-import { activePendingItems } from "./pending-state.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { isActivePendingItem } from "./pending-state.js";
 import { externalServiceFailure, fetchExternal } from "./external-error.js";
 
 import { deletionDeferralReason } from "./deletion-deferrals.js";
 
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TIMEOUT_MS = 10000;
+const MAX_SEND_ATTEMPTS = 3;
+const MAX_RATE_LIMIT_WAIT_MS = 5000;
+const RETRYABLE_CONNECT_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STANDARD_NOTIFICATION_MILESTONES = [20, 10, 5, 1];
 
@@ -161,8 +171,9 @@ export function findDuePendingNotifications({
     return [];
   }
 
-  return activePendingItems(pending)
+  return (Array.isArray(pending) ? pending : [])
     .map((item, index) => {
+      if (!isActivePendingItem(item)) return null;
       const elapsedDays = daysSinceDateOnly(item.MarkedDate, now, timezone);
       if (elapsedDays === null) return null;
       const daysRemaining = daysUntilDeletion - elapsedDays;
@@ -205,15 +216,28 @@ export async function sendDuePendingNotifications({
     };
   }
 
-  const result = await sendMessage(
-    settings.Telegram,
-    formatPendingNotification(
-      due.map(({ item, daysRemaining }) => ({
-        ...item,
-        DaysRemaining: daysRemaining,
-      })),
-    ),
-  );
+  let result;
+  try {
+    result = await sendMessage(
+      settings.Telegram,
+      formatPendingNotification(
+        due.map(({ item, daysRemaining }) => ({
+          ...item,
+          DaysRemaining: daysRemaining,
+        })),
+      ),
+    );
+  } catch (error) {
+    return {
+      status: "failed",
+      enabled: true,
+      sent: false,
+      due: due.length,
+      messageCount: error.messageCount ?? 0,
+      pending,
+      message: error.message || "Telegram notification failed",
+    };
+  }
   const updated = (Array.isArray(pending) ? pending : []).map((item) => ({
     ...item,
     Notified: asIntegerList(item.Notified),
@@ -351,39 +375,94 @@ export function splitTelegramMessage(text, limit = TELEGRAM_MESSAGE_LIMIT) {
   return parts;
 }
 
-export async function sendTelegramMessage(config, text, fetchImpl = fetch) {
-  if (!config.BotToken || !config.ChatID) {
-    throw new Error("Telegram bot token and Chat ID are required");
-  }
+function sendFailure(detail, options = {}) {
+  return externalServiceFailure({
+    service: "Telegram",
+    operation: "send message",
+    detail,
+    ...options,
+  });
+}
 
-  const messages = splitTelegramMessage(text);
-  for (const message of messages) {
+function beforeTelegramRequest(error) {
+  const networkError = error.cause?.cause ?? error.cause;
+  return RETRYABLE_CONNECT_CODES.has(networkError?.code) ||
+    (networkError?.syscall === "connect" && networkError.code === "ETIMEDOUT") ||
+    (networkError?.code === "ECONNRESET" &&
+      /before secure TLS connection was established/i.test(networkError.message));
+}
+
+async function sendTelegramPart(config, message, fetchImpl, wait) {
+  const body = JSON.stringify({
+    chat_id: config.ChatID,
+    text: message,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
+  for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt += 1) {
+    const canRetry = attempt < MAX_SEND_ATTEMPTS;
     const response = await fetchExternal({
       service: "Telegram",
       operation: "send message",
       url: `https://api.telegram.org/bot${config.BotToken}/sendMessage`,
       timeoutMs: TIMEOUT_MS,
       fetchImpl,
+      allowedStatuses: [429],
       options: {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: config.ChatID,
-          text: message,
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
+        headers: { "Content-Type": "application/json", Connection: "close" },
+        body,
       },
+    }).catch((error) => {
+      if (beforeTelegramRequest(error)) {
+        if (canRetry) return null;
+        throw error;
+      }
+      // Telegram sendMessage has no idempotency key. An uncertain send must not be replayed.
+      if (!error.status || error.status >= 500 || error.status === 408) {
+        throw sendFailure(`${error.safeDetail || "connection interrupted"}; delivery unconfirmed`, {
+          status: error.status,
+          cause: error,
+        });
+      }
+      throw error;
     });
-    const data = await response.json().catch(() => ({}));
-    if (!data.ok) {
-      throw externalServiceFailure({
-        service: "Telegram",
-        operation: "send message",
-        detail: data.description || "Telegram rejected the message",
-      });
+
+    if (!response) {
+      await wait(500 * attempt);
+      continue;
     }
+    const data = await response.json().catch(() => null);
+    if (response.status === 429) {
+      const retryAfter = data?.parameters?.retry_after ?? response.headers?.get("Retry-After") ?? 1;
+      const numericWait = Number(retryAfter) * 1000;
+      const waitMs = Number.isFinite(numericWait) ? Math.max(1000, numericWait) : Infinity;
+      if (!canRetry || waitMs > MAX_RATE_LIMIT_WAIT_MS) {
+        throw sendFailure("rate limited; try again later", { status: 429 });
+      }
+      await wait(waitMs);
+      continue;
+    }
+    if (data?.ok === true) return;
+    if (data?.ok === false) {
+      throw sendFailure(data.description || "Telegram rejected the message");
+    }
+    throw sendFailure("could not read Telegram's response; delivery unconfirmed");
+  }
+}
+
+export async function sendTelegramMessage(config, text, fetchImpl = fetch, wait = delay) {
+  if (!config.BotToken || !config.ChatID) {
+    throw new Error("Telegram bot token and Chat ID are required");
   }
 
+  const messages = splitTelegramMessage(text);
+  for (const [index, message] of messages.entries()) {
+    try {
+      await sendTelegramPart(config, message, fetchImpl, wait);
+    } catch (error) {
+      throw Object.assign(error, { messageCount: index });
+    }
+  }
   return { messageCount: messages.length };
 }

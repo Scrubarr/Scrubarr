@@ -176,12 +176,16 @@ export function createMaintenanceWorkflows({
       if (result.sent) {
         await stores.pendingStore.write(result.pending);
       }
-      await appLog.info("Telegram pending notification check completed", {
-        enabled: result.enabled,
-        sent: result.sent,
-        due: result.due,
-        messageCount: result.messageCount,
-      });
+      const failed = result.status === "failed";
+      await appLog[failed ? "warn" : "info"](
+        failed ? result.message : "Telegram pending notification check completed",
+        {
+          enabled: result.enabled,
+          sent: result.sent,
+          due: result.due,
+          messageCount: result.messageCount,
+        },
+      );
       return result;
     });
   }

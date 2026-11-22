@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sendDuePendingNotifications } from "../src/services/telegram.js";
 import {
   nextPendingScheduledRun,
   nextScheduledRun,
@@ -434,4 +435,45 @@ test("retains one normalized issue set across scheduled summaries, logs, and ale
   assert.deepEqual(store.value.lastRun.issues, expected);
   assert.deepEqual(appended[0].issues, expected);
   assert.deepEqual(healthEvents[0].issues, expected);
+});
+
+test("a Telegram failure retains the due count in the run log and does not replay cleanup", async (t) => {
+  const entries = [];
+  let cleanupCount = 0;
+  const scheduler = new SchedulerService({
+    store: new MemoryStore(),
+    timezone: "UTC",
+    scanCoordinator: {
+      isBusy: () => false,
+      commitEligibleCandidates: async () => ({
+        added: [],
+        result: {
+          readOnly: false,
+          candidates: [],
+          summary: { scanned: 1, candidateMovies: 0, candidateSeries: 0 },
+        },
+      }),
+    },
+    notifications: () => sendDuePendingNotifications({
+      settings: { Telegram: { Enabled: true }, DeletionSchedule: { DaysUntilDeletion: 20 } },
+      pending: [{ Type: "Movie", Title: "Due Movie", MarkedDate: "2026-11-23" }],
+      now: new Date("2026-11-23T12:00:00Z"),
+      sendMessage: async () => { throw new Error("Telegram connection reset"); },
+    }),
+    cleanup: async () => {
+      cleanupCount += 1;
+      return { status: "success" };
+    },
+    runLog: { append: async (entry) => entries.push(entry) },
+  });
+  t.after(() => scheduler.stop());
+
+  await scheduler.start();
+  const run = await scheduler.runNow();
+  assert.equal(cleanupCount, 1);
+  assert.equal(run.status, "partial");
+  assert.equal(run.notifications.status, "failed");
+  assert.equal(run.notifications.due, 1);
+  assert.deepEqual(entries[0].notifications, run.notifications);
+  assert.deepEqual(run.issues.map((issue) => issue.key), ["notifications"]);
 });

@@ -76,6 +76,7 @@ export async function fetchExternal({
   options = {},
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
+  allowedStatuses = [],
 } = {}) {
   let response;
   try {
@@ -92,7 +93,7 @@ export async function fetchExternal({
     });
   }
 
-  if (!response.ok) {
+  if (!response.ok && !allowedStatuses.includes(response.status)) {
     throw new ExternalServiceError({
       service,
       operation,

@@ -175,7 +175,7 @@ function notificationSummary(result) {
     status: result.status || (result.sent ? "sent" : "skipped"),
     enabled: result.enabled === true,
     sent: result.sent === true,
-    due: Number(result.due || 0),
+    due: result.due ?? null,
     messageCount: Number(result.messageCount || 0),
     message: result.message || "",
   };
@@ -361,7 +361,7 @@ export class SchedulerService {
             status: "failed",
             enabled: true,
             sent: false,
-            due: 0,
+            due: null,
             messageCount: 0,
             message: error.message || "Telegram notification failed",
           };

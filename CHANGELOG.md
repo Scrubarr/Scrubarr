@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.2
+
+- Retry Telegram reminders, reports, and alerts after temporary connection
+  failures that happen before sending, or short Telegram rate limits.
+- Stop and report unconfirmed delivery when resending could create a duplicate.
+  Retry only the affected part of a multipart message.
+- Record how many pending reminders were due even if sending fails. Mark the
+  correct pending items as notified when deleted records are present.
+- Updated Express's transitive runtime dependencies to address current
+  advisories in body-parser, proxy-addr, and qs.
+
 ## 1.4.1
 
 - Fixed Emby watch-history requests to include optional play counts and

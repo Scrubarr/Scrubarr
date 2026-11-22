@@ -102,7 +102,7 @@ export function entryFromPreviewResult({
           status: notifications.status || (notifications.sent ? "sent" : "skipped"),
           enabled: notifications.enabled === true,
           sent: notifications.sent === true,
-          due: Number(notifications.due || 0),
+          due: notifications.due ?? null,
           messageCount: Number(notifications.messageCount || 0),
           message: safeString(notifications.message),
         }

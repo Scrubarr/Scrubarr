@@ -204,6 +204,81 @@ test("sender reports Telegram API failures with service context", async () => {
   );
 });
 
+const bot = { BotToken: "123:token", ChatID: "-100123" };
+const telegramAccepted = () => Response.json({ ok: true, result: { message_id: 1 } });
+
+function connectionReset(message) {
+  return new TypeError("fetch failed", {
+    cause: Object.assign(new Error(message), { code: "ECONNRESET" }),
+  });
+}
+
+test("sender retries a reset before the TLS handshake, bounded to three attempts", async () => {
+  for (const recover of [true, false]) {
+    const attempted = [];
+    const waits = [];
+    const result = sendTelegramMessage(bot, "Report", async (_url, options) => {
+      attempted.push(JSON.parse(options.body).text);
+      if (recover && attempted.length === 3) return telegramAccepted();
+      throw connectionReset("Client network socket disconnected before secure TLS connection was established");
+    }, async (ms) => { waits.push(ms); });
+
+    if (recover) {
+      assert.deepEqual(await result, { messageCount: 1 });
+    } else {
+      await assert.rejects(result, /ECONNRESET/);
+    }
+    assert.deepEqual(attempted, ["Report", "Report", "Report"]);
+    assert.deepEqual(waits, [500, 1000]);
+  }
+});
+
+test("sender stops after unconfirmed delivery and preserves the count of confirmed parts", async () => {
+  const attempted = [];
+  const text = `${"a".repeat(4000)}\n${"b".repeat(4000)}\nthird part`;
+  await assert.rejects(sendTelegramMessage(bot, text, async (_url, options) => {
+    attempted.push(JSON.parse(options.body).text);
+    if (attempted.length === 1) return telegramAccepted();
+    throw connectionReset("read ECONNRESET");
+  }, async () => assert.fail("ambiguous delivery must not be retried")), {
+    message: /ECONNRESET.*delivery unconfirmed/,
+    messageCount: 1,
+  });
+  assert.deepEqual(attempted, ["a".repeat(4000), `${"b".repeat(4000)}\nthird part`]);
+});
+
+test("sender retries only the throttled part and honors Telegram's retry interval", async () => {
+  const attempted = [];
+  const waits = [];
+  const first = "a".repeat(4000);
+  const second = "b".repeat(100);
+  const result = await sendTelegramMessage(bot, `${first}\n${second}`, async (_url, options) => {
+    attempted.push(JSON.parse(options.body).text);
+    return attempted.length === 2
+      ? Response.json({ ok: false, parameters: { retry_after: 2 } }, { status: 429 })
+      : telegramAccepted();
+  }, async (ms) => { waits.push(ms); });
+  assert.equal(result.messageCount, 2);
+  assert.deepEqual(attempted, [first, second, second]);
+  assert.deepEqual(waits, [2000]);
+});
+
+test("sender reports persistent limits, authorization errors and unreadable replies without replay", async () => {
+  for (const [makeResponse, message] of [
+    [() => Response.json({ parameters: { retry_after: 60 } }, { status: 429 }), /HTTP 429/],
+    [() => new Response(null, { status: 401 }), /HTTP 401/],
+    [() => new Response("invalid JSON"), /delivery unconfirmed/],
+    [() => new Response(null, { status: 503 }), /HTTP 503.*delivery unconfirmed/],
+  ]) {
+    let attempts = 0;
+    await assert.rejects(sendTelegramMessage(bot, "Report", async () => {
+      attempts += 1;
+      return makeResponse();
+    }, async () => assert.fail("response must not be retried")), message);
+    assert.equal(attempts, 1);
+  }
+});
+
 test("notification policy days avoid noisy back-to-back standard reminders", () => {
   assert.deepEqual(
     notificationDaysForPolicy({
@@ -284,6 +359,7 @@ test("pending notification sender marks only due items as notified", async () =>
     DeletionSchedule: { DaysUntilDeletion: 20 },
   };
   const pending = [
+    { Title: "Deleted Movie", Type: "Movie", MarkedDate: "2026-06-20", Deleted: true, Notified: [] },
     { Title: "Due Movie", Type: "Movie", MarkedDate: "2026-06-20", Notified: [] },
     { Title: "Already Sent", Type: "Movie", MarkedDate: "2026-06-20", Notified: [20] },
     { Title: "Not Due", Type: "Series", MarkedDate: "2026-06-15", Notified: [] },
@@ -313,7 +389,35 @@ test("pending notification sender marks only due items as notified", async () =>
   assert.equal(result.sent, true);
   assert.equal(result.due, 1);
   assert.equal(sent.length, 1);
-  assert.deepEqual(result.pending[0].Notified, [20]);
+  assert.deepEqual(result.pending[0].Notified, []);
   assert.deepEqual(result.pending[1].Notified, [20]);
-  assert.deepEqual(result.pending[2].Notified, []);
+  assert.deepEqual(result.pending[2].Notified, [20]);
+  assert.deepEqual(result.pending[3].Notified, []);
+  assert.equal(findDuePendingNotifications({
+    settings,
+    pending: result.pending,
+    now: new Date("2026-06-20T04:00:00.000Z"),
+    timezone: "Pacific/Auckland",
+  }).length, 0);
+});
+
+test("failed reminder delivery reports the true due count without marking items as notified", async () => {
+  const pending = [
+    { Title: "Due Movie", Type: "Movie", MarkedDate: "2026-11-23", Notified: [] },
+    { Title: "Due Series", Type: "Series", MarkedDate: "2026-11-23", Notified: [] },
+  ];
+  const result = await sendDuePendingNotifications({
+    settings: { Telegram: { ...bot, Enabled: true }, DeletionSchedule: { DaysUntilDeletion: 20 } },
+    pending,
+    now: new Date("2026-11-22T23:00:00Z"),
+    timezone: "Pacific/Auckland",
+    sendMessage: async () => { throw new Error("connection reset; delivery unconfirmed"); },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.sent, false);
+  assert.equal(result.due, 2);
+  assert.equal(result.messageCount, 0);
+  assert.match(result.message, /delivery unconfirmed/);
+  assert.equal(result.pending, pending);
+  assert.ok(pending.every((item) => item.Notified.length === 0));
 });
