@@ -462,7 +462,8 @@ export class SchedulerService {
     if (!key && !previous) return;
     if (key && key === previous?.key && Date.now() - Date.parse(previous.sentAt) < ALERT_REMINDER_MS) return;
     try {
-      const delivery = await this.runHealthNotification({ issues });
+      const previousIssueKeys = !key && previous?.key ? previous.key.split("|") : [];
+      const delivery = await this.runHealthNotification({ issues, previousIssueKeys });
       if (delivery?.sent) {
         this.state.runAlert = key ? { key, sentAt: new Date().toISOString() } : null;
         await this.persist();

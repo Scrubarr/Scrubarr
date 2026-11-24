@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.3
+
+- Clarified Telegram alerts so message delivery problems and cleanup
+  problems are easy to distinguish, with shorter recovery messages.
+- Renamed the pending-removal report to "Kept in library" and clarified
+  why each listed item stayed in the library.
+- Applied the same italic Scrubarr sign-off with two soap emojis to every
+  Telegram message.
+
 ## 1.4.2
 
 - Retry Telegram reminders, reports, and alerts after temporary connection

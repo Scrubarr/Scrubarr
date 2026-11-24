@@ -57,7 +57,7 @@ function mediaGroups(items) {
 
 export function withScrubarrFooter(lines) {
   if (lines.at(-1) !== "") lines.push("");
-  lines.push("🧼 Scrubarr-dub-dub 🧼");
+  lines.push("🧼 <i>Scrubarr-dub-dub</i> 🧼");
   return lines.join("\n").trim();
 }
 
@@ -275,14 +275,18 @@ function formatItemSections(items) {
   return lines;
 }
 
-function formatDeferredItemSections(items) {
+function formatDeferredItemSections(items, { kept = false } = {}) {
   const lines = [];
   for (const group of mediaGroups(items)) {
     if (group.items.length === 0) continue;
     lines.push(`<b>${group.icon} ${group.label}</b>`);
     for (const item of sortByTitle(group.items)) {
-      lines.push(`• ${escapeTelegramHtml(titleOf(item))}`);
-      lines.push(`  Reason: ${escapeTelegramHtml(deletionDeferralReason(item.SkipCode))}`);
+      const title = escapeTelegramHtml(titleOf(item));
+      const reason = kept && item.SkipCode === "age-rule-not-met"
+        ? "Its watch history no longer meets the cleanup age requirement."
+        : deletionDeferralReason(item.SkipCode);
+      lines.push(`• ${kept ? `<b>${title}</b>` : title}`);
+      lines.push(`  ${kept ? "" : "Reason: "}${escapeTelegramHtml(reason)}`);
     }
     lines.push("");
   }
@@ -342,12 +346,12 @@ export function formatDeletionDeferredReport(items) {
 
 export function formatPendingRemovalReport(items) {
   return withScrubarrFooter([
-    "<b>🧽 Scrubarr - Pending Queue Updated ↩️</b>",
+    "<b>↩️ Scrubarr · Kept in library</b>",
     "",
-    "These due items were removed from pending because they no longer match the current cleanup rules:",
+    "Scrubarr removed these items from Pending Deletions because they no longer qualify.",
     "",
-    ...formatDeferredItemSections(items),
-    "No media was deleted. An item can be queued again if it qualifies during a future scan.",
+    ...formatDeferredItemSections(items, { kept: true }),
+    "These items can be queued again if they qualify later.",
   ]);
 }
 

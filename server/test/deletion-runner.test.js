@@ -355,9 +355,9 @@ test("live deletion removes due items that no longer meet cleanup rules", async 
   assert.equal(result.removalTelegram.sent, true);
   assert.equal(result.deferralTelegram.sent, false);
   assert.equal(sent.length, 1);
-  assert.match(sent[0], /Scrubarr - Pending Queue Updated/);
+  assert.match(sent[0], /Scrubarr · Kept in library/);
   assert.match(sent[0], /No Longer Eligible/);
-  assert.match(sent[0], /No media was deleted/);
+  assert.match(sent[0], /removed these items from Pending Deletions/);
 });
 
 test("live deletion fails closed when active playback check fails", async () => {

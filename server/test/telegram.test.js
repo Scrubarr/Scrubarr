@@ -94,16 +94,17 @@ test("deletion deferral reports distinguish safety protection from failure", () 
 
 test("pending queue update reports explain rule-based removal without implying deletion", () => {
   const message = formatPendingRemovalReport([{
-    Title: "Recently Watched Movie",
+    Title: "Recently Watched <Movie>",
     Type: "Movie",
     SkipCode: "age-rule-not-met",
   }]);
 
-  assert.match(message, /🧽 Scrubarr - Pending Queue Updated ↩️/);
-  assert.match(message, /Recently Watched Movie/);
-  assert.match(message, /watch history no longer meets the cleanup age rules/);
-  assert.match(message, /No media was deleted/);
-  assert.match(message, /🧼 Scrubarr-dub-dub 🧼/);
+  assert.match(message, /↩️ Scrubarr · Kept in library/);
+  assert.match(message, /removed these items from Pending Deletions/);
+  assert.match(message, /• <b>Recently Watched &lt;Movie&gt;<\/b>/);
+  assert.match(message, /watch history no longer meets the cleanup age requirement/);
+  assert.match(message, /can be queued again if they qualify later/);
+  assert.doesNotMatch(message, /No media was deleted/);
 });
 
 test("test message clearly states that no scan or deletion occurred", () => {
@@ -130,9 +131,9 @@ test("production Telegram message formats render expected content", () => {
     { Title: "Removed Movie", Type: "Movie", SkipCode: "too-new" },
   ]);
 
-  for (const message of [pending, deletion, dryRun, failure, deferred, removed, formatTestMessage()]) {
+  for (const message of [pending, deletion, dryRun, failure, deferred, formatTestMessage()]) {
     assert.match(message, /^<b>🧽 Scrubarr - /);
-    assert.match(message, /🧼 Scrubarr-dub-dub 🧼$/);
+    assert.equal(message.split("\n").at(-1), "🧼 <i>Scrubarr-dub-dub</i> 🧼");
   }
   assert.ok(pending.includes(specialTitle));
   assert.match(deletion, /Deletion Report/);
@@ -140,7 +141,9 @@ test("production Telegram message formats render expected content", () => {
   assert.match(dryRun, /No media files were actually deleted/);
   assert.match(failure, /Deletion Failures/);
   assert.match(deferred, /Deletion Deferred for Safety/);
-  assert.match(removed, /Pending Queue Updated/);
+  assert.match(removed, /^<b>↩️ Scrubarr · Kept in library<\/b>/);
+  assert.match(removed, /Too new for the current cleanup rules/);
+  assert.equal(removed.split("\n").at(-1), "🧼 <i>Scrubarr-dub-dub</i> 🧼");
 });
 
 test("Telegram HTML escaping covers all required entities", () => {

@@ -15,12 +15,12 @@ test("run alerts identify service and incomplete stages without leaking error de
     service: "Emby", status: 503, detail: "https://private-host/?token=do-not-send",
   }));
   const message = formatRunHealthNotification({ issues: [issue] });
-  assert.match(message, /Emby connection or request failed/);
-  assert.match(message, /^<b>🧽 Scrubarr - /);
-  assert.match(message, /🧼 Scrubarr-dub-dub 🧼$/);
+  assert.match(message, /Scrubarr couldn’t complete a request to Emby/);
+  assert.match(message, /^<b>⚠️ Scrubarr · Cleanup needs attention<\/b>/);
+  assert.equal(message.split("\n").at(-1), "🧼 <i>Scrubarr-dub-dub</i> 🧼");
   assert.doesNotMatch(message, /private-host|token|do-not-send/);
   assert.equal(scanFailureIssue(new Error("password=do-not-send")).key, "scan");
-  assert.match(formatRunHealthNotification({ issues: [] }), /recovered/);
+  assert.match(formatRunHealthNotification({ issues: [] }), /Run back to normal/);
   const issues = scheduledRunIssues({
     result: { connectionFailures: ["Sonarr", "Radarr", "private-host"] },
     tagging: { failed: 1 }, librarySync: { status: "partial" },
@@ -50,6 +50,31 @@ test("run alerts identify service and incomplete stages without leaking error de
       },
     },
   }).map((item) => item.key), ["deferral-report"]);
+});
+
+test("run alerts distinguish Telegram-only warnings from cleanup problems", () => {
+  const issues = scheduledRunIssues({
+    notifications: { status: "failed", message: "connection reset; delivery unconfirmed" },
+    cleanup: {
+      status: "success",
+      telegram: { attempted: true, sent: false },
+    },
+  });
+  const delivery = formatRunHealthNotification({ issues });
+  assert.match(delivery, /^<b>⚠️ Scrubarr · Telegram delivery<\/b>/);
+  assert.match(delivery, /Cleanup finished\./);
+  assert.match(delivery, /couldn’t confirm delivery of the following:\n• Pending deletion reminder\n• Deletion report/);
+  assert.match(delivery, /<b>Scrubarr → Logs<\/b>/);
+  assert.doesNotMatch(delivery, /connection reset|retry/i);
+
+  const mixed = formatRunHealthNotification({ issues: [
+    { key: "cleanup", label: "private-host with sensitive details" },
+    ...issues,
+  ] });
+  assert.match(mixed, /^<b>⚠️ Scrubarr · Cleanup needs attention<\/b>/);
+  assert.match(mixed, /• There was a problem checking or deleting due items\./);
+  assert.match(mixed, /• Deletion report/);
+  assert.doesNotMatch(mixed, /Cleanup finished|private-host/);
 });
 
 test("run alerts surface final safety warnings, tag cleanup, and attempted report failures", () => {
@@ -127,9 +152,18 @@ test("Scrubarr application wiring sends its own failure and recovery messages", 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].chat_id, "test-chat");
   assert.equal(messages[0].parse_mode, "HTML");
-  assert.match(messages[0].text, /Jellyfin connection/);
+  assert.match(messages[0].text, /couldn’t complete a request to Jellyfin/);
   scheduler.scanCoordinator.commitEligibleCandidates = async () => ({ added: [], result: { candidates: [], summary: {} } });
   await scheduler.runNow();
   assert.equal(messages.length, 2);
-  assert.match(messages[1].text, /recovered/);
+  assert.match(messages[1].text, /Run back to normal/);
+  assert.doesNotMatch(messages[1].text, /previous warning was about Telegram/);
+
+  scheduler.notifications = async () => ({ status: "failed", due: 2 });
+  await scheduler.runNow();
+  assert.match(messages[2].text, /Telegram delivery/);
+  scheduler.notifications = async () => ({ sent: true, due: 2 });
+  await scheduler.runNow();
+  assert.equal(messages.length, 4);
+  assert.match(messages[3].text, /The previous warning was about Telegram delivery\./);
 });

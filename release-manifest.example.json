@@ -1,6 +1,6 @@
 {
-  "version": "1.4.2",
-  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.4.2",
-  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.4.2",
-  "notes": "Improves Telegram delivery with bounded retries and duplicate protection, and fixes reminder counts and notification tracking."
+  "version": "1.4.3",
+  "dockerImage": "ghcr.io/scrubarr/scrubarr:v1.4.3",
+  "releaseUrl": "https://github.com/Scrubarr/Scrubarr/releases/tag/v1.4.3",
+  "notes": "Clarifies Telegram warnings and recovery messages, adds the Kept in library report wording, and makes the sign-off consistent."
 }
